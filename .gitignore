@@ -16,6 +16,8 @@ Makefile
 *.so
 *.exe
 
+!launc-macro.exe
+
 # IDE / editor files
 .vscode/
 .idea/
