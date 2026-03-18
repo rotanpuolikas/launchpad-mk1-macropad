@@ -2,6 +2,12 @@
 
 Launchpad Mini MK1 GIF display + macro pad. Runs on Linux and Windows. Probably works on newer launchpad models, but expect the colours to be wacky and wrong.
 
+## Prebuilt binaries
+
+You can find two prebuilt binaries in the project root, those being `launc-macro` and `launc-macro.exe`
+
+I still highly recommend building this by yourself, it takes less than a minute, but if you're really lazy you can use the prebuilts. I don't judge.
+
 ## Building
 
 ### Linux

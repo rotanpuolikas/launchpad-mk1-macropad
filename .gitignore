@@ -1,5 +1,7 @@
 # Build directory
 build/
+build-win/
+BUILD_WINDOWS.txt
 
 # CMake generated files
 CMakeCache.txt
