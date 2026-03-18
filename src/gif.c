@@ -14,11 +14,12 @@
 #include "stb_image_resize2.h"
 
 #include "gif.h"
+#include "colours.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-GifData *gif_load(const char *path) {
+GifData *gif_load(const char *path, int mode) {
     // read the whole file into memory so we can use stbi_load_gif_from_memory
     FILE *f = fopen(path, "rb");
     if (!f) { perror("gif_load: fopen"); return NULL; }
@@ -54,11 +55,15 @@ GifData *gif_load(const char *path) {
     gd->frames = calloc((size_t)z, sizeof(uint8_t *));
     gd->delays = calloc((size_t)z, sizeof(int));
 
+    uint8_t tmp[9 * 9 * 3];
     for (int i = 0; i < z; i++) {
-        gd->frames[i] = malloc(9 * 9 * 3);
-        // each frame occupies x*y*3 bytes, frames are stacked vertically
+        // resize to 9x9 RGB into a temporary buffer
         stbir_resize_uint8_linear(pixels + i * x * y * 3, x, y, 0,
-                                  gd->frames[i], 9, 9, 0, STBIR_RGB);
+                                  tmp, 9, 9, 0, STBIR_RGB);
+        // pre-map every pixel to the closest Launchpad velocity
+        gd->frames[i] = malloc(9 * 9);
+        for (int p = 0; p < 9 * 9; p++)
+            gd->frames[i][p] = closest_colour_vel(tmp[p*3], tmp[p*3+1], tmp[p*3+2], mode);
         gd->delays[i] = (delays && delays[i] > 0) ? delays[i] : 100;
     }
 

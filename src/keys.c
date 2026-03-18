@@ -38,6 +38,7 @@ static const struct { const char *name; int vk; } KEY_TABLE[] = {
     {"right",        VK_RIGHT},     {"insert",       VK_INSERT},
     {"caps_lock",    VK_CAPITAL},   {"print_screen", VK_SNAPSHOT},
     {"pause",        VK_PAUSE},     {"num_lock",     VK_NUMLOCK},
+    {"scroll_lock",  VK_SCROLL},
     // F-keys
     {"f1",  VK_F1},  {"f2",  VK_F2},  {"f3",  VK_F3},  {"f4",  VK_F4},
     {"f5",  VK_F5},  {"f6",  VK_F6},  {"f7",  VK_F7},  {"f8",  VK_F8},
@@ -189,6 +190,7 @@ static const struct { const char *name; int code; } KEY_TABLE[] = {
     {"right",        KEY_RIGHT},      {"insert",       KEY_INSERT},
     {"caps_lock",    KEY_CAPSLOCK},   {"print_screen", KEY_SYSRQ},
     {"pause",        KEY_PAUSE},      {"num_lock",     KEY_NUMLOCK},
+    {"scroll_lock",  KEY_SCROLLLOCK},
     // F-keys
     {"f1",  KEY_F1},  {"f2",  KEY_F2},  {"f3",  KEY_F3},  {"f4",  KEY_F4},
     {"f5",  KEY_F5},  {"f6",  KEY_F6},  {"f7",  KEY_F7},  {"f8",  KEY_F8},

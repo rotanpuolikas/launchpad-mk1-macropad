@@ -70,13 +70,11 @@ static int is_protected(int row, int col, const GifArg *a) {
     return 0;
 }
 
-static void render_frame(Launchpad *lp, const uint8_t *pixels, int mode, const GifArg *a) {
+static void render_frame(Launchpad *lp, const uint8_t *vels, const GifArg *a) {
     for (int row = 0; row < 9; row++) {
         for (int col = 0; col < 9; col++) {
             if (is_protected(row, col, a)) continue;
-            const uint8_t *p = pixels + (row * 9 + col) * 3;
-            uint8_t vel = closest_colour_vel(p[0], p[1], p[2], mode);
-            lp_set_rc(lp, row, col, vel);
+            lp_set_rc(lp, row, col, vels[row * 9 + col]);
         }
     }
 }
@@ -85,11 +83,14 @@ static void *gif_thread(void *arg) {
     GifArg *a = (GifArg *)arg;
     while (!*a->stop) {
         for (int fi = 0; fi < a->gd->count && !*a->stop; fi++) {
-            render_frame(a->lp, a->gd->frames[fi], a->mode, a);
+            render_frame(a->lp, a->gd->frames[fi], a);
             int ms = a->gd->delays[fi];
             // sleep in small chunks so the stop flag is checked promptly
-            for (int t = 0; t < ms && !*a->stop; t += 10)
-                usleep(10000);
+            for (int t = 0; t < ms && !*a->stop; ) {
+                int chunk = ms - t < 10 ? ms - t : 10;
+                usleep((unsigned)(chunk * 1000));
+                t += chunk;
+            }
         }
     }
     return NULL;
@@ -302,7 +303,7 @@ int main(int argc, char **argv) {
 
     if (args.gif) {
         printf("loading '%s'…\n", args.gif);
-        gd = gif_load(args.gif);
+        gd = gif_load(args.gif, args.mode);
         if (!gd) { lp_clear(&lp); lp_close(&lp); return 1; }
 
         float fps = args.fps;
