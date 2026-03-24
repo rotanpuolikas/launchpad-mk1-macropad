@@ -35,7 +35,6 @@
 #endif
 
 #include "midi.h"
-#include "colours.h" // shows a 'not used' error but ignore it
 #include "config.h"
 #include "keys.h"
 #ifdef HAVE_GIF
