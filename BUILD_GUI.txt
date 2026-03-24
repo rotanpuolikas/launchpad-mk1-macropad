@@ -1,0 +1,101 @@
+Building launc-macro-gui (graphical front-end)
+===============================================
+
+The GUI uses raylib + raygui for rendering and is built from the gui/
+subdirectory. raylib, raygui, inih, and stb are all fetched automatically
+by CMake — no manual downloads are needed.
+
+
+LINUX
+======
+
+STEP 1 — Install dependencies
+-------------------------------
+    # Arch
+    sudo pacman -S alsa-lib cmake git base-devel \
+        libx11 libxrandr libxinerama libxcursor libxi mesa
+
+    # Debian/Ubuntu
+    sudo apt install libasound2-dev cmake git build-essential \
+        libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+        libxi-dev libgl1-mesa-dev
+
+STEP 2 — Build
+---------------
+    cmake -S gui -B build-gui -DCMAKE_BUILD_TYPE=Release
+    cmake --build build-gui -j$(nproc)
+
+    Binary: build-gui/launc-macro-gui
+
+STEP 3 — Run
+-------------
+    ./build-gui/launc-macro-gui
+
+    The GUI window opens automatically. Click "Connect" to find a Launchpad,
+    then "Start" to activate the macro pad (optionally with a GIF file).
+
+
+WINDOWS (native build via MSYS2)
+==================================
+
+STEP 1 — Install tools (first time only)
+------------------------------------------
+From an MSYS2 MinGW64 shell:
+
+    pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake git
+
+STEP 2 — Build
+---------------
+    cmake -S gui -B build-gui -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+    cmake --build build-gui -j$(nproc)
+
+    Binary: build-gui/launc-macro-gui.exe
+
+No extra DLLs needed — raylib's OpenGL/GDI dependencies are Windows
+system libraries that ship with every copy of Windows.
+
+
+CROSS-COMPILING FOR WINDOWS FROM LINUX (Arch)
+===============================================
+
+STEP 1 — Install packages
+---------------------------
+    sudo pacman -S mingw-w64-gcc cmake git
+
+STEP 2 — Configure and build
+------------------------------
+    cmake -S gui -B build-gui-win \
+        -DCMAKE_TOOLCHAIN_FILE=toolchain-mingw64.cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc"
+    cmake --build build-gui-win -j$(nproc)
+
+    Binary: build-gui-win/launc-macro-gui.exe
+
+The "-static -static-libgcc" flags bundle the MinGW runtime so the .exe
+runs on Windows without any extra DLLs.
+
+NOTE: raylib's OpenGL rendering requires OpenGL 3.3+ support on the target
+machine. This is available on any reasonably modern GPU (Intel HD 4000+,
+AMD GCN+, NVIDIA Kepler+) and on Windows via the system opengl32.dll.
+
+NOTE: CMake 3.28+ is required. raylib 5.5 is the minimum version that
+declares cmake_minimum_required(VERSION 3.5), which is needed to satisfy
+CMake 3.28's removal of compatibility with CMake < 3.5. raylib 5.0 will
+error with "Compatibility with CMake < 3.5 has been removed".
+
+
+NOTES
+======
+- The gui/ directory contains only the CMakeLists.txt for the GUI build.
+  All source code lives in src/ (shared with the CLI) and src/gui/ (GUI only).
+
+- CMakeLists-gui.txt in the project root is an alternative copy of gui/CMakeLists.txt
+  provided for reference. The canonical build entry point is gui/CMakeLists.txt.
+
+- If CMake fails to fetch dependencies (no internet / firewall), pre-clone them
+  and override with:
+      -DFETCHCONTENT_SOURCE_DIR_RAYLIB=/path/to/raylib
+      -DFETCHCONTENT_SOURCE_DIR_RAYGUI=/path/to/raygui
+      -DFETCHCONTENT_SOURCE_DIR_INIH=/path/to/inih
+      -DFETCHCONTENT_SOURCE_DIR_STB=/path/to/stb

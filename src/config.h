@@ -31,3 +31,6 @@ int config_load(Config *cfg, const char *path);
 
 // find a button config by id, returns NULL if not configured
 const ButtonCfg *config_find_button(const Config *cfg, const char *id);
+
+// write the current config back to an INI file, returns 0 on success, -1 on error
+int config_save(const Config *cfg, const char *path);

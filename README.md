@@ -45,6 +45,50 @@ cmake --build build -j$(nproc)
 # binary: build/launc-macro.exe
 ```
 
+### GUI version (launc-macro-gui)
+
+A graphical front-end built with [raylib](https://www.raylib.com/) + [raygui](https://github.com/raysan5/raygui). It shows a live visual of the Launchpad grid, lets you inspect button configs, and controls the macro pad / GIF playback without a terminal.
+
+**Additional dependencies** (raylib, raygui, inih, stb are all fetched automatically by CMake):
+
+```bash
+# Arch — extra X11/GL libraries for raylib
+sudo pacman -S libx11 libxrandr libxinerama libxcursor libxi mesa
+
+# Debian/Ubuntu
+sudo apt install libx11-dev libxrandr-dev libxinerama-dev \
+    libxcursor-dev libxi-dev libgl1-mesa-dev
+```
+
+**Linux:**
+
+```bash
+cmake -S gui -B build-gui -DCMAKE_BUILD_TYPE=Release
+cmake --build build-gui -j$(nproc)
+# binary: build-gui/launc-macro-gui
+```
+
+**Windows (MSYS2 MinGW64 shell):**
+
+```bash
+cmake -S gui -B build-gui -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build-gui -j$(nproc)
+# binary: build-gui/launc-macro-gui.exe
+```
+
+**Cross-compile for Windows from Linux:**
+
+```bash
+cmake -S gui -B build-gui-win \
+    -DCMAKE_TOOLCHAIN_FILE=toolchain-mingw64.cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc"
+cmake --build build-gui-win -j$(nproc)
+# binary: build-gui-win/launc-macro-gui.exe
+```
+
+See [BUILD_GUI.txt](BUILD_GUI.txt) for full details and dependency notes.
+
 ## Setup
 
 ### Linux — uinput access (key/media actions)
@@ -126,3 +170,5 @@ action = app:firefox
 ## AI usage
 
 This project has been partially written by Claude, and this README.md has mostly been written by Claude as well. I would never write a README this comprehensive.
+
+The entire GUI part has been written by Claude Code. I take no credit for the coding of that.

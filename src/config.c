@@ -154,6 +154,46 @@ int config_load(Config *cfg, const char *path) {
     return 0;
 }
 
+static const char *vel_to_name(uint8_t vel) {
+    for (int i = 0; i < PALETTE_COUNT; i++)
+        if (PALETTE[i].vel == vel) return PALETTE[i].name;
+    return "black";
+}
+
+int config_save(const Config *cfg, const char *path) {
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s", path);
+#ifdef _WIN32
+    char *slash = strrchr(dir, '\\');
+    if (!slash) slash = strrchr(dir, '/');
+#else
+    char *slash = strrchr(dir, '/');
+#endif
+    if (slash) { *slash = '\0'; mkdirs(dir); }
+
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+
+    fprintf(f, "[settings]\n");
+    fprintf(f, "default_color         = %s\n", vel_to_name(cfg->default_color));
+    fprintf(f, "default_color_pressed = %s\n\n", vel_to_name(cfg->default_color_pressed));
+
+    for (int i = 0; i < cfg->num_buttons; i++) {
+        const ButtonCfg *btn = &cfg->buttons[i];
+        fprintf(f, "[%s]\n", btn->id);
+        fprintf(f, "color         = %s\n", vel_to_name(btn->color));
+        fprintf(f, "color_pressed = %s\n", vel_to_name(btn->color_pressed));
+        if (btn->action[0])
+            fprintf(f, "action        = %s\n", btn->action);
+        if (btn->gif_overlay)
+            fprintf(f, "gif_overlay   = true\n");
+        fprintf(f, "\n");
+    }
+
+    fclose(f);
+    return 0;
+}
+
 const ButtonCfg *config_find_button(const Config *cfg, const char *id) {
     for (int i = 0; i < cfg->num_buttons; i++)
         if (strcmp(cfg->buttons[i].id, id) == 0)

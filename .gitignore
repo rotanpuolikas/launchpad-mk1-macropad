@@ -1,6 +1,8 @@
 # Build directory
 build/
 build-win/
+build-gui/
+build-gui-win/
 BUILD_WINDOWS.txt
 
 # CMake generated files
@@ -15,6 +17,8 @@ Makefile
 *.a
 *.so
 *.exe
+
+!launc-macro.exe
 
 # IDE / editor files
 .vscode/
