@@ -563,6 +563,13 @@ struct PanelState {
     int         gif_fb_visible;   /* GIF browse popup open */
     int         cfg_fb_visible;   /* Config browse popup open */
 
+    /* Button clipboard (Ctrl+C/X/V between buttons) */
+    bool    btn_clip_valid;
+    uint8_t btn_clip_color;
+    uint8_t btn_clip_color_pressed;
+    char    btn_clip_action[MAX_ACTION_LEN];
+    int     btn_clip_gif_overlay;
+
     /* Options panel */
     int        options_open;
     GuiOptions opts;
@@ -597,6 +604,16 @@ static void assemble_action(char *out, int size, int type_active, const char *va
     static const char *prefixes[] = { "", "key:", "string:", "media:", "app:", "terminal:" };
     if (type_active == 0 || value[0] == '\0') out[0] = '\0';
     else snprintf(out, size, "%s%s", prefixes[type_active], value);
+}
+
+/* Returns true if any text box is currently in edit mode (used to suppress
+   button-level shortcuts while the user is typing). */
+static bool any_textbox_active(const PanelState *ps) {
+    return ps->action_value_edit || ps->config_path_edit ||
+           ps->gif_path_edit    || ps->fps_edit          ||
+           ps->opts_fp_edit     || ps->opts_fs_edit      ||
+           ps->opts_bg_edit     || ps->opts_hdr_edit     ||
+           ps->opts_acc_edit    || ps->opts_btn_edit;
 }
 
 /* Ctrl+C/X/V clipboard support for any active text box.
@@ -1194,6 +1211,65 @@ int main(void) {
         if (ps.gif_fb_visible)  draw_gif_popup(&ps);
         if (ps.cfg_fb_visible)  draw_cfg_popup(app, &ps);
         if (ps.options_open)    draw_options_panel(app, &ps);
+
+        /* ── Button copy / paste / cut / delete ────────────────────────────
+           Active only when a button is selected, no dropdown/popup is open,
+           and no text box is being edited (so Ctrl+C in a text field still
+           works normally via textbox_clipboard()). */
+        if (sel >= 0 && !any_locked && !any_textbox_active(&ps)) {
+            bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+            const char *id  = button_index_to_id(sel);
+            const ButtonCfg *btn = config_find_button(&app->config, id);
+
+            uint8_t    cur_col   = btn ? btn->color          : app->config.default_color;
+            uint8_t    cur_colp  = btn ? btn->color_pressed  : app->config.default_color_pressed;
+            const char *cur_act  = btn ? btn->action         : "";
+            int        cur_gif   = btn ? btn->gif_overlay    : 0;
+
+            if (ctrl && IsKeyPressed(KEY_C)) {
+                ps.btn_clip_color         = cur_col;
+                ps.btn_clip_color_pressed = cur_colp;
+                strncpy(ps.btn_clip_action, cur_act, MAX_ACTION_LEN - 1);
+                ps.btn_clip_action[MAX_ACTION_LEN - 1] = '\0';
+                ps.btn_clip_gif_overlay   = cur_gif;
+                ps.btn_clip_valid         = true;
+                snprintf(app->status_msg, sizeof(app->status_msg),
+                         "Copied config from %s.", id);
+
+            } else if (ctrl && IsKeyPressed(KEY_X)) {
+                ps.btn_clip_color         = cur_col;
+                ps.btn_clip_color_pressed = cur_colp;
+                strncpy(ps.btn_clip_action, cur_act, MAX_ACTION_LEN - 1);
+                ps.btn_clip_action[MAX_ACTION_LEN - 1] = '\0';
+                ps.btn_clip_gif_overlay   = cur_gif;
+                ps.btn_clip_valid         = true;
+                app_set_button_color(app, sel, app->config.default_color);
+                app_set_button_color_pressed(app, sel, app->config.default_color_pressed);
+                app_set_button_action(app, sel, "");
+                app_set_button_gif_overlay(app, sel, 0);
+                ps.last_sel = -2;
+                snprintf(app->status_msg, sizeof(app->status_msg),
+                         "Cut config from %s.", id);
+
+            } else if (ctrl && IsKeyPressed(KEY_V) && ps.btn_clip_valid) {
+                app_set_button_color(app, sel, ps.btn_clip_color);
+                app_set_button_color_pressed(app, sel, ps.btn_clip_color_pressed);
+                app_set_button_action(app, sel, ps.btn_clip_action);
+                app_set_button_gif_overlay(app, sel, ps.btn_clip_gif_overlay);
+                ps.last_sel = -2;
+                snprintf(app->status_msg, sizeof(app->status_msg),
+                         "Pasted config to %s.", id);
+
+            } else if (IsKeyPressed(KEY_DELETE)) {
+                app_set_button_color(app, sel, app->config.default_color);
+                app_set_button_color_pressed(app, sel, app->config.default_color_pressed);
+                app_set_button_action(app, sel, "");
+                app_set_button_gif_overlay(app, sel, 0);
+                ps.last_sel = -2;
+                snprintf(app->status_msg, sizeof(app->status_msg),
+                         "Cleared config for %s.", id);
+            }
+        }
 
         EndDrawing();
     }
