@@ -804,8 +804,18 @@ static void draw_cfg_panel(AppState *app, PanelState *ps) {
         app_reload_config(app);
         ps->last_sel = -2;
     }
-    if (GuiButton((Rectangle){(float)(x + w/2 + 3),(float)y,hw,24}, "Save Config"))
+    if (GuiButton((Rectangle){(float)(x + w/2 + 3),(float)y,hw,24}, "Save Config")) {
+        /* Auto-apply current action panel state so the user doesn't have to
+           click "Apply Action" before saving — mirrors how colour dropdowns
+           immediately commit their changes to in-memory config. */
+        if (ps->last_sel >= 0) {
+            char assembled[MAX_ACTION_LEN];
+            assemble_action(assembled, sizeof(assembled),
+                            ps->action_type_active, ps->action_value);
+            app_set_button_action(app, ps->last_sel, assembled);
+        }
         app_save_config(app);
+    }
     if (any_locked) GuiSetState(STATE_NORMAL);
 }
 
