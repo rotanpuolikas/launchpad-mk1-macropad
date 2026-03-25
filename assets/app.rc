@@ -1,0 +1,5 @@
+/* Windows resource script — embeds icon.ico into the .exe.
+ * Paths are relative to this file (assets/).
+ * Requires assets/icon.ico to exist at build time.
+ */
+IDI_ICON1 ICON "icon.ico"

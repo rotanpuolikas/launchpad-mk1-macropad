@@ -60,8 +60,19 @@ set(GUI_SOURCES
     ${inih_SOURCE_DIR}/ini.c
 )
 
-# On Windows suppress the console window via WIN32 subsystem
+# Copy icon.png to the build directory so the app can find it at runtime
+set(ICON_PNG "${CMAKE_CURRENT_LIST_DIR}/../assets/icon.png")
+if(EXISTS "${ICON_PNG}")
+    configure_file("${ICON_PNG}" "${CMAKE_CURRENT_BINARY_DIR}/icon.png" COPYONLY)
+endif()
+
+# On Windows: embed icon.ico into the .exe via a resource script
+# Also suppress the console window via WIN32 subsystem
 if(WIN32)
+    set(ICON_ICO "${CMAKE_CURRENT_LIST_DIR}/../assets/icon.ico")
+    if(EXISTS "${ICON_ICO}")
+        list(APPEND GUI_SOURCES "${CMAKE_CURRENT_LIST_DIR}/../assets/app.rc")
+    endif()
     add_executable(launc-macro-gui WIN32 ${GUI_SOURCES})
 else()
     add_executable(launc-macro-gui ${GUI_SOURCES})

@@ -1023,6 +1023,18 @@ static void draw_header(AppState *app, PanelState *ps) {
 int main(void) {
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(WIN_W, WIN_H, "launc-macro GUI");
+
+    /* Set window icon from icon.png next to the executable */
+    {
+        char icon_path[512];
+        snprintf(icon_path, sizeof(icon_path), "%sicon.png", GetApplicationDirectory());
+        Image app_icon = LoadImage(icon_path);
+        if (app_icon.data) {
+            SetWindowIcon(app_icon);
+            UnloadImage(app_icon);
+        }
+    }
+
     SetTargetFPS(60);
 
     apply_theme();
