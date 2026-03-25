@@ -65,10 +65,15 @@ STEP 1 — Install packages
 STEP 2 — Configure and build
 ------------------------------
     cmake -S gui -B build-gui-win \
-        -DCMAKE_TOOLCHAIN_FILE=toolchain-mingw64.cmake \
+        -DCMAKE_TOOLCHAIN_FILE=$(pwd)/toolchain-mingw64.cmake \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc"
     cmake --build build-gui-win -j$(nproc)
+
+IMPORTANT: Run the cmake command from the project root directory
+(launchpad-mk1-macropad-gui/).  The toolchain file path must be absolute
+or relative to where cmake is invoked — not to the source directory.
+Using $(pwd)/toolchain-mingw64.cmake ensures this works correctly.
 
     Binary: build-gui-win/launc-macro-gui.exe
 
