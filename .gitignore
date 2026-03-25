@@ -3,6 +3,7 @@ build/
 build-win/
 build-gui/
 build-gui-win/
+build-gui2/
 BUILD_WINDOWS.txt
 
 # CMake generated files
