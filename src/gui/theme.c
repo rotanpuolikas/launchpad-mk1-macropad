@@ -38,7 +38,7 @@ Color THEME_DOT_IDLE     = { 220, 220,  80, 255 };
 Color THEME_DOT_OFFLINE  = { 200,  60,  60, 255 };
 
 /* ── Launchpad button grid ───────────────────────────────────────────────── */
-Color THEME_BTN_OFF        = {  45,  45,  50, 255 };
+Color THEME_BTN_OFF        = {  40,  40,  45, 255 };
 Color THEME_BTN_OFF_SEL    = {  60,  60,  65, 255 };
 Color THEME_BTN_BORDER     = {  70,  70,  75, 255 };
 Color THEME_BTN_BORDER_HOV = { 160, 160, 160, 255 };
