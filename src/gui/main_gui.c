@@ -599,6 +599,27 @@ static void assemble_action(char *out, int size, int type_active, const char *va
     else snprintf(out, size, "%s%s", prefixes[type_active], value);
 }
 
+/* Ctrl+C/X/V clipboard support for any active text box.
+   Call this immediately after GuiTextBox(), passing the same buffer and the
+   current edit-mode flag.  Paste overwrites the full buffer contents. */
+static void textbox_clipboard(char *buf, int buf_size, bool in_edit) {
+    if (!in_edit) return;
+    bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    if (!ctrl) return;
+    if (IsKeyPressed(KEY_C)) {
+        SetClipboardText(buf);
+    } else if (IsKeyPressed(KEY_X)) {
+        SetClipboardText(buf);
+        buf[0] = '\0';
+    } else if (IsKeyPressed(KEY_V)) {
+        const char *cb = GetClipboardText();
+        if (cb && cb[0]) {
+            strncpy(buf, cb, buf_size - 1);
+            buf[buf_size - 1] = '\0';
+        }
+    }
+}
+
 /* ── Right panel ─────────────────────────────────────────────────────────────── */
 
 static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
@@ -667,6 +688,7 @@ static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
                        ps->action_value_edit))
             ps->action_value_edit = !ps->action_value_edit;
         if (any_locked) GuiSetState(STATE_NORMAL);
+        textbox_clipboard(ps->action_value, sizeof(ps->action_value), ps->action_value_edit);
         y += 30;
 
         if (any_locked) GuiSetState(STATE_DISABLED);
@@ -725,6 +747,7 @@ static void draw_gif_panel(AppState *app, PanelState *ps) {
                    ps->gif_path, (int)sizeof(ps->gif_path), ps->gif_path_edit))
         ps->gif_path_edit = !ps->gif_path_edit;
     if (busy || any_locked) GuiSetState(STATE_NORMAL);
+    textbox_clipboard(ps->gif_path, sizeof(ps->gif_path), ps->gif_path_edit);
     if (busy || any_locked) GuiSetState(STATE_DISABLED);
     if (GuiButton((Rectangle){(float)(x+w-BROWSE_BTN_W),(float)y,BROWSE_BTN_W,22}, "..."))
         ps->gif_fb_visible = !ps->gif_fb_visible;
@@ -759,6 +782,7 @@ static void draw_gif_panel(AppState *app, PanelState *ps) {
         if (!ps->fps_edit) app->fps = (float)atof(ps->fps_buf);
     }
     if (busy || any_locked) GuiSetState(STATE_NORMAL);
+    textbox_clipboard(ps->fps_buf, sizeof(ps->fps_buf), ps->fps_edit);
 }
 
 /* ── Config panel (right column, below the grid) ────────────────────────────── */
@@ -788,6 +812,7 @@ static void draw_cfg_panel(AppState *app, PanelState *ps) {
                      "%s", ps->config_path_buf);
     }
     if (any_locked) GuiSetState(STATE_NORMAL);
+    textbox_clipboard(ps->config_path_buf, sizeof(ps->config_path_buf), ps->config_path_edit);
     if (any_locked) GuiSetState(STATE_DISABLED);
     if (GuiButton((Rectangle){(float)(x + w - BROWSE_BTN_W),(float)y,
                                BROWSE_BTN_W, 22}, "..."))
@@ -851,6 +876,7 @@ static void draw_options_panel(AppState *app, PanelState *ps) {
     float fp_w = (float)(iw - BROWSE_BTN_W - 4);
     GuiTextBox((Rectangle){(float)ix,(float)y,fp_w,22},
                ps->opts.font_path, sizeof(ps->opts.font_path), ps->opts_fp_edit);
+    textbox_clipboard(ps->opts.font_path, sizeof(ps->opts.font_path), ps->opts_fp_edit);
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) &&
         CheckCollisionPointRec(GetMousePosition(),
             (Rectangle){(float)ix,(float)y,fp_w,22}))
@@ -865,6 +891,7 @@ static void draw_options_panel(AppState *app, PanelState *ps) {
     if (GuiTextBox((Rectangle){(float)fs_x,(float)y,52,22},
                    ps->opts_fs_buf, sizeof(ps->opts_fs_buf), ps->opts_fs_edit))
         ps->opts_fs_edit = !ps->opts_fs_edit;
+    textbox_clipboard(ps->opts_fs_buf, sizeof(ps->opts_fs_buf), ps->opts_fs_edit);
     y += 28;
 
     /* Font file browser (shown when toggle is on) */
@@ -907,6 +934,7 @@ static void draw_options_panel(AppState *app, PanelState *ps) {
         DrawRectangleLinesEx((Rectangle){(float)hx,(float)y,20,22}, 1, THEME_BTN_BORDER);
         GuiTextBox((Rectangle){(float)(hx+24),(float)y,(float)(iw-lbl_w-24-4),22},
                    col_bufs[i], 7, *col_edits[i]);
+        textbox_clipboard(col_bufs[i], 7, *col_edits[i]);
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) &&
             CheckCollisionPointRec(GetMousePosition(),
                 (Rectangle){(float)(hx+24),(float)y,(float)(iw-lbl_w-24-4),22}))
