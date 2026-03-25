@@ -424,7 +424,7 @@ static const char *COLOUR_DROPDOWN =
     "green_low;green_med;green_max;"
     "yellow_low;yellow_med;yellow_max";
 
-static const char *ACTION_TYPE_DROPDOWN = "none;key;media;app;terminal";
+static const char *ACTION_TYPE_DROPDOWN = "none;key;string;media;app;terminal";
 
 static int vel_to_palette_idx(uint8_t vel) {
     for (int i = 0; i < PALETTE_COUNT; i++)
@@ -586,14 +586,15 @@ static void parse_action(const char *action, int *type_out,
     if (!action || action[0] == '\0') {
         *type_out = 0; val_out[0] = '\0';
     } else if (!strncmp(action, "key:",      4)) { *type_out = 1; strncpy(val_out, action + 4, val_size-1); }
-    else if (!strncmp(action, "media:",     6)) { *type_out = 2; strncpy(val_out, action + 6, val_size-1); }
-    else if (!strncmp(action, "app:",       4)) { *type_out = 3; strncpy(val_out, action + 4, val_size-1); }
-    else if (!strncmp(action, "terminal:",  9)) { *type_out = 4; strncpy(val_out, action + 9, val_size-1); }
-    else { *type_out = 3; snprintf(val_out, val_size, "%s", action); }
+    else if (!strncmp(action, "string:",    7)) { *type_out = 2; strncpy(val_out, action + 7, val_size-1); }
+    else if (!strncmp(action, "media:",     6)) { *type_out = 3; strncpy(val_out, action + 6, val_size-1); }
+    else if (!strncmp(action, "app:",       4)) { *type_out = 4; strncpy(val_out, action + 4, val_size-1); }
+    else if (!strncmp(action, "terminal:",  9)) { *type_out = 5; strncpy(val_out, action + 9, val_size-1); }
+    else { *type_out = 4; snprintf(val_out, val_size, "%s", action); }
 }
 
 static void assemble_action(char *out, int size, int type_active, const char *value) {
-    static const char *prefixes[] = { "", "key:", "media:", "app:", "terminal:" };
+    static const char *prefixes[] = { "", "key:", "string:", "media:", "app:", "terminal:" };
     if (type_active == 0 || value[0] == '\0') out[0] = '\0';
     else snprintf(out, size, "%s%s", prefixes[type_active], value);
 }

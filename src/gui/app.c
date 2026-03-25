@@ -94,11 +94,14 @@ static void execute_action(Keys *keys, const char *action) {
             waitpid(pid, NULL, WNOHANG);
         }
 #endif
+    } else if (strncmp(action, "string:", 7) == 0) {
+        keys_send_string(keys, action + 7);
     } else if (strncmp(action, "terminal:", 9) == 0) {
+        const char *cmd = action + 9;
 #ifdef _WIN32
         char cmd_line[512];
         snprintf(cmd_line, sizeof(cmd_line),
-                 "powershell.exe -NoExit -Command \"%s\"", action + 9);
+                 "powershell.exe -NoExit -Command \"%s\"", cmd);
         STARTUPINFOA si; PROCESS_INFORMATION pi;
         memset(&si, 0, sizeof(si)); si.cb = sizeof(si);
         memset(&pi, 0, sizeof(pi));
@@ -109,12 +112,37 @@ static void execute_action(Keys *keys, const char *action) {
             CloseHandle(pi.hThread);
         }
 #else
-        const char *shell = getenv("SHELL");
-        if (!shell || !shell[0]) shell = "/bin/sh";
+        /* Check if command ends with & (run in background, no terminal window) */
+        size_t len = strlen(cmd);
+        const char *p = cmd + len - 1;
+        while (p >= cmd && (*p == ' ' || *p == '\t')) p--;
+        int background = (p >= cmd && *p == '&');
+
         pid_t pid = fork();
         if (pid == 0) {
             setsid();
-            execl(shell, shell, "-c", action + 9, NULL);
+            if (background) {
+                /* Strip trailing & and run directly via sh */
+                char bg_cmd[512];
+                size_t clen = (size_t)(p - cmd); /* exclude the & */
+                if (clen >= sizeof(bg_cmd)) clen = sizeof(bg_cmd) - 1;
+                strncpy(bg_cmd, cmd, clen);
+                bg_cmd[clen] = '\0';
+                execl("/bin/sh", "sh", "-c", bg_cmd, NULL);
+            } else {
+                /* Open in a new terminal window, try common emulators in order */
+                const char *term = getenv("TERMINAL");
+                if (term && term[0])
+                    execlp(term,             term,             "-e", "sh", "-c", cmd, NULL);
+                execlp("ghostty",        "ghostty",        "-e", "sh", "-c", cmd, NULL);
+                execlp("alacritty",      "alacritty",      "-e", "sh", "-c", cmd, NULL);
+                execlp("kitty",          "kitty",          "sh", "-c", cmd, NULL);
+                execlp("foot",           "foot",           "sh", "-c", cmd, NULL);
+                execlp("wezterm",        "wezterm",        "start", "--", "sh", "-c", cmd, NULL);
+                execlp("xterm",          "xterm",          "-e", "sh", "-c", cmd, NULL);
+                execlp("konsole",        "konsole",        "-e", "sh", "-c", cmd, NULL);
+                execlp("gnome-terminal", "gnome-terminal", "--", "sh", "-c", cmd, NULL);
+            }
             _exit(127);
         } else if (pid > 0) {
             waitpid(pid, NULL, WNOHANG);
