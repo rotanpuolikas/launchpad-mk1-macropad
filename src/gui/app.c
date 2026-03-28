@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdio.h>
 
+#include <time.h>
+
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -13,7 +15,6 @@
 #else
 #  include <unistd.h>
 #  include <sys/wait.h>
-#  include <time.h>
 static void sleep_ms(int ms) {
     struct timespec ts = { ms / 1000, (long)(ms % 1000) * 1000000L };
     nanosleep(&ts, NULL);
@@ -196,37 +197,85 @@ static void *gif_thread_func(void *arg) {
 
 /* ── Event thread ───────────────────────────────────────────────────────────── */
 
+typedef struct {
+    int             active;
+    struct timespec press_time;
+    struct timespec last_fire;
+    int             repeat_started;
+} HeldSlot;
+
+static long timespec_diff_ms(struct timespec a, struct timespec b) {
+    return (b.tv_sec - a.tv_sec) * 1000L + (b.tv_nsec - a.tv_nsec) / 1000000L;
+}
+
 static void *event_thread_func(void *arg) {
     AppState *app = (AppState *)arg;
+    HeldSlot held[BUTTON_COUNT];
+    memset(held, 0, sizeof(held));
+
     while (!app->stop_requested) {
         ButtonEvent ev;
         int r = lp_poll(&app->lp, &ev, 10);
         if (r < 0) break;
-        if (r == 0) continue;
 
-        const ButtonCfg *btn = config_find_button(&app->config, ev.id);
-        uint8_t idle_c    = btn ? btn->color         : app->config.default_color;
-        uint8_t pressed_c = btn ? btn->color_pressed : app->config.default_color_pressed;
-        int is_overlay    = btn && btn->gif_overlay;
-        int show_feedback = !app->gif || is_overlay;
+        if (r > 0) {
+            const ButtonCfg *btn = config_find_button(&app->config, ev.id);
+            uint8_t idle_c    = btn ? btn->color         : app->config.default_color;
+            uint8_t pressed_c = btn ? btn->color_pressed : app->config.default_color_pressed;
+            int is_overlay    = btn && btn->gif_overlay;
+            int show_feedback = !app->gif || is_overlay;
 
-        int idx = button_id_to_index(ev.id);
+            int idx = button_id_to_index(ev.id);
 
-        if (ev.pressed) {
-            if (show_feedback) lp_set_button(&app->lp, ev.id, pressed_c);
-            if (btn && btn->action[0] && app->keys)
-                execute_action(app->keys, btn->action);
-            if (idx >= 0) {
-                pthread_mutex_lock(&app->mutex);
-                app->led_state[idx] = pressed_c;
-                pthread_mutex_unlock(&app->mutex);
+            if (ev.pressed) {
+                if (show_feedback) lp_set_button(&app->lp, ev.id, pressed_c);
+                if (btn && btn->action[0] && app->keys)
+                    execute_action(app->keys, btn->action);
+                if (idx >= 0) {
+                    pthread_mutex_lock(&app->mutex);
+                    app->led_state[idx] = pressed_c;
+                    pthread_mutex_unlock(&app->mutex);
+                    if (btn && btn->repeat_on_hold) {
+                        clock_gettime(CLOCK_MONOTONIC, &held[idx].press_time);
+                        held[idx].last_fire     = held[idx].press_time;
+                        held[idx].active        = 1;
+                        held[idx].repeat_started = 0;
+                    }
+                }
+            } else {
+                if (show_feedback) lp_set_button(&app->lp, ev.id, idle_c);
+                if (idx >= 0) {
+                    pthread_mutex_lock(&app->mutex);
+                    app->led_state[idx] = idle_c;
+                    pthread_mutex_unlock(&app->mutex);
+                    held[idx].active = 0;
+                }
             }
-        } else {
-            if (show_feedback) lp_set_button(&app->lp, ev.id, idle_c);
-            if (idx >= 0) {
-                pthread_mutex_lock(&app->mutex);
-                app->led_state[idx] = idle_c;
-                pthread_mutex_unlock(&app->mutex);
+        }
+
+        /* Check held buttons for repeat fires */
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        for (int i = 0; i < BUTTON_COUNT; i++) {
+            if (!held[i].active) continue;
+            const ButtonCfg *btn = config_find_button(&app->config, button_index_to_id(i));
+            if (!btn || !btn->repeat_on_hold || !btn->action[0] || !app->keys) {
+                held[i].active = 0;
+                continue;
+            }
+            int hold_delay = btn->hold_delay_ms      > 0 ? btn->hold_delay_ms      : 500;
+            int interval   = btn->repeat_interval_ms > 0 ? btn->repeat_interval_ms : 100;
+            if (!held[i].repeat_started) {
+                if (timespec_diff_ms(held[i].press_time, now) >= hold_delay) {
+                    held[i].repeat_started = 1;
+                    held[i].last_fire = now;
+                    execute_action(app->keys, btn->action);
+                }
+            } else {
+                if (timespec_diff_ms(held[i].last_fire, now) >= interval) {
+                    held[i].last_fire = now;
+                    execute_action(app->keys, btn->action);
+                }
             }
         }
     }
@@ -457,4 +506,13 @@ void app_set_button_action(AppState *app, int btn_idx, const char *action) {
 void app_set_button_gif_overlay(AppState *app, int btn_idx, int overlay) {
     ButtonCfg *btn = get_or_create_button(app, btn_idx);
     if (btn) btn->gif_overlay = overlay;
+}
+
+void app_set_button_repeat(AppState *app, int btn_idx, int on_hold,
+                           int hold_delay_ms, int repeat_interval_ms) {
+    ButtonCfg *btn = get_or_create_button(app, btn_idx);
+    if (!btn) return;
+    btn->repeat_on_hold     = on_hold;
+    btn->hold_delay_ms      = hold_delay_ms;
+    btn->repeat_interval_ms = repeat_interval_ms;
 }

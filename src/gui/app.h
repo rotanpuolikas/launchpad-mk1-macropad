@@ -69,6 +69,7 @@ void        app_set_button_color(AppState *app, int btn_idx, uint8_t color);
 void        app_set_button_color_pressed(AppState *app, int btn_idx, uint8_t color_pressed);
 void        app_set_button_action(AppState *app, int btn_idx, const char *action);
 void        app_set_button_gif_overlay(AppState *app, int btn_idx, int overlay);
+void        app_set_button_repeat(AppState *app, int btn_idx, int on_hold, int hold_delay_ms, int repeat_interval_ms);
 
 /* button index <-> id string helpers */
 const char *button_index_to_id(int idx);        /* "top_0", "grid_3_4", "side_2" */

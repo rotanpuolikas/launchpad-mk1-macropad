@@ -18,6 +18,7 @@ Makefile
 *.a
 *.so
 *.exe
+!launc-macro-gui.exe
 
 !launc-macro.exe
 

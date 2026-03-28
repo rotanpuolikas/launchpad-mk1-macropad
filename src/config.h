@@ -11,6 +11,9 @@ typedef struct {
     uint8_t color_pressed;
     char    action[MAX_ACTION_LEN];
     int     gif_overlay;
+    int     repeat_on_hold;      /* repeat action while button is held */
+    int     hold_delay_ms;       /* ms before first repeat (0 = default 500) */
+    int     repeat_interval_ms;  /* ms between repeats (0 = default 100) */
 } ButtonCfg;
 
 typedef struct {

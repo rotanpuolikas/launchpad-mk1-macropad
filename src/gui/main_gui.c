@@ -75,6 +75,10 @@
 #define GIF_PANEL_Y  (GRID_Y + 9 * BTN_STEP + PAD)
 #define GIF_PANEL_H  (WIN_H - SBAR_H - GIF_PANEL_Y - PAD)
 
+/* Config panel (right column, below the button editor).
+   Must clear the bottom of the button editor: RPANEL_Y(78) + ~426 of controls. */
+#define CFG_PANEL_Y  516
+
 /* Options overlay panel */
 #define OPTS_W    340
 #define OPTS_H    420
@@ -409,10 +413,10 @@ static void opts_load(GuiOptions *o, const char *path) {
 
         if (!strcmp(k, "font_path"))   strncpy(o->font_path,  v, sizeof(o->font_path)  - 1);
         else if (!strcmp(k, "font_size"))   o->font_size = atoi(v);
-        else if (!strcmp(k, "col_bg"))      strncpy(o->col_bg,     v, 7);
-        else if (!strcmp(k, "col_header"))  strncpy(o->col_header, v, 7);
-        else if (!strcmp(k, "col_accent"))  strncpy(o->col_accent, v, 7);
-        else if (!strcmp(k, "col_btn_off")) strncpy(o->col_btn_off,v, 7);
+        else if (!strcmp(k, "col_bg"))      strncpy(o->col_bg,     v, sizeof(o->col_bg)     - 1);
+        else if (!strcmp(k, "col_header"))  strncpy(o->col_header, v, sizeof(o->col_header) - 1);
+        else if (!strcmp(k, "col_accent"))  strncpy(o->col_accent, v, sizeof(o->col_accent) - 1);
+        else if (!strcmp(k, "col_btn_off")) strncpy(o->col_btn_off,v, sizeof(o->col_btn_off)- 1);
     }
     fclose(f);
 }
@@ -563,12 +567,22 @@ struct PanelState {
     int         gif_fb_visible;   /* GIF browse popup open */
     int         cfg_fb_visible;   /* Config browse popup open */
 
+    /* Repeat-on-hold settings */
+    int  repeat_on_hold_val;
+    char hold_delay_buf[8];
+    char repeat_interval_buf[8];
+    int  hold_delay_edit;
+    int  repeat_interval_edit;
+
     /* Button clipboard (Ctrl+C/X/V between buttons) */
     bool    btn_clip_valid;
     uint8_t btn_clip_color;
     uint8_t btn_clip_color_pressed;
     char    btn_clip_action[MAX_ACTION_LEN];
     int     btn_clip_gif_overlay;
+    int     btn_clip_repeat_on_hold;
+    int     btn_clip_hold_delay_ms;
+    int     btn_clip_repeat_interval_ms;
 
     /* Options panel */
     int        options_open;
@@ -658,13 +672,21 @@ static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
                 ps->color_pressed_active = vel_to_palette_idx(btn->color_pressed);
                 parse_action(btn->action, &ps->action_type_active,
                              ps->action_value, sizeof(ps->action_value));
-                ps->gif_overlay_val = btn->gif_overlay;
+                ps->gif_overlay_val    = btn->gif_overlay;
+                ps->repeat_on_hold_val = btn->repeat_on_hold;
+                snprintf(ps->hold_delay_buf,      sizeof(ps->hold_delay_buf),      "%d",
+                         btn->hold_delay_ms      > 0 ? btn->hold_delay_ms      : 500);
+                snprintf(ps->repeat_interval_buf, sizeof(ps->repeat_interval_buf), "%d",
+                         btn->repeat_interval_ms > 0 ? btn->repeat_interval_ms : 100);
             } else {
                 ps->color_active         = vel_to_palette_idx(app->config.default_color);
                 ps->color_pressed_active = vel_to_palette_idx(app->config.default_color_pressed);
                 ps->action_type_active   = 0;
                 ps->action_value[0]      = '\0';
                 ps->gif_overlay_val      = 0;
+                ps->repeat_on_hold_val   = 0;
+                snprintf(ps->hold_delay_buf,      sizeof(ps->hold_delay_buf),      "500");
+                snprintf(ps->repeat_interval_buf, sizeof(ps->repeat_interval_buf), "100");
             }
         }
     }
@@ -727,6 +749,38 @@ static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
             app_set_button_gif_overlay(app, sel, ps->gif_overlay_val);
         }
         if (any_locked) GuiSetState(STATE_NORMAL);
+        y += 30;
+
+        if (any_locked) GuiSetState(STATE_DISABLED);
+        if (GuiButton((Rectangle){(float)x,(float)y,(float)w,24},
+                      ps->repeat_on_hold_val ? "Repeat on hold: ON" : "Repeat on hold: OFF")) {
+            ps->repeat_on_hold_val = !ps->repeat_on_hold_val;
+            app_set_button_repeat(app, sel, ps->repeat_on_hold_val,
+                                  atoi(ps->hold_delay_buf), atoi(ps->repeat_interval_buf));
+        }
+        if (any_locked) GuiSetState(STATE_NORMAL);
+        y += 30;
+
+        DrawText("Hold delay (ms):", x, y, THEME_FONT_LABEL, THEME_TEXT_LABEL);
+        y += 18;
+        if (any_locked) GuiSetState(STATE_DISABLED);
+        if (GuiTextBox((Rectangle){(float)x,(float)y,(float)w,24},
+                       ps->hold_delay_buf, (int)sizeof(ps->hold_delay_buf),
+                       ps->hold_delay_edit))
+            ps->hold_delay_edit = !ps->hold_delay_edit;
+        if (any_locked) GuiSetState(STATE_NORMAL);
+        textbox_clipboard(ps->hold_delay_buf, sizeof(ps->hold_delay_buf), ps->hold_delay_edit);
+        y += 30;
+
+        DrawText("Repeat interval (ms):", x, y, THEME_FONT_LABEL, THEME_TEXT_LABEL);
+        y += 18;
+        if (any_locked) GuiSetState(STATE_DISABLED);
+        if (GuiTextBox((Rectangle){(float)x,(float)y,(float)w,24},
+                       ps->repeat_interval_buf, (int)sizeof(ps->repeat_interval_buf),
+                       ps->repeat_interval_edit))
+            ps->repeat_interval_edit = !ps->repeat_interval_edit;
+        if (any_locked) GuiSetState(STATE_NORMAL);
+        textbox_clipboard(ps->repeat_interval_buf, sizeof(ps->repeat_interval_buf), ps->repeat_interval_edit);
         y += 30;
 
     } else {
@@ -808,7 +862,7 @@ static void draw_cfg_panel(AppState *app, PanelState *ps) {
     bool any_locked = (ps->open_dropdown != DROPDOWN_NONE)
                    || ps->gif_fb_visible || ps->options_open;
 
-    int y = GIF_PANEL_Y;
+    int y = CFG_PANEL_Y;
     int x = RPANEL_X;
     int w = RPANEL_W;
 
@@ -855,6 +909,8 @@ static void draw_cfg_panel(AppState *app, PanelState *ps) {
             assemble_action(assembled, sizeof(assembled),
                             ps->action_type_active, ps->action_value);
             app_set_button_action(app, ps->last_sel, assembled);
+            app_set_button_repeat(app, ps->last_sel, ps->repeat_on_hold_val,
+                                  atoi(ps->hold_delay_buf), atoi(ps->repeat_interval_buf));
         }
         app_save_config(app);
     }
@@ -1221,32 +1277,42 @@ int main(void) {
             const char *id  = button_index_to_id(sel);
             const ButtonCfg *btn = config_find_button(&app->config, id);
 
-            uint8_t    cur_col   = btn ? btn->color          : app->config.default_color;
-            uint8_t    cur_colp  = btn ? btn->color_pressed  : app->config.default_color_pressed;
-            const char *cur_act  = btn ? btn->action         : "";
-            int        cur_gif   = btn ? btn->gif_overlay    : 0;
+            uint8_t    cur_col    = btn ? btn->color             : app->config.default_color;
+            uint8_t    cur_colp   = btn ? btn->color_pressed     : app->config.default_color_pressed;
+            const char *cur_act   = btn ? btn->action            : "";
+            int        cur_gif    = btn ? btn->gif_overlay       : 0;
+            int        cur_rep    = btn ? btn->repeat_on_hold    : 0;
+            int        cur_hd     = btn ? btn->hold_delay_ms     : 500;
+            int        cur_ri     = btn ? btn->repeat_interval_ms: 100;
 
             if (ctrl && IsKeyPressed(KEY_C)) {
-                ps.btn_clip_color         = cur_col;
-                ps.btn_clip_color_pressed = cur_colp;
+                ps.btn_clip_color              = cur_col;
+                ps.btn_clip_color_pressed      = cur_colp;
                 strncpy(ps.btn_clip_action, cur_act, MAX_ACTION_LEN - 1);
                 ps.btn_clip_action[MAX_ACTION_LEN - 1] = '\0';
-                ps.btn_clip_gif_overlay   = cur_gif;
-                ps.btn_clip_valid         = true;
+                ps.btn_clip_gif_overlay        = cur_gif;
+                ps.btn_clip_repeat_on_hold     = cur_rep;
+                ps.btn_clip_hold_delay_ms      = cur_hd;
+                ps.btn_clip_repeat_interval_ms = cur_ri;
+                ps.btn_clip_valid              = true;
                 snprintf(app->status_msg, sizeof(app->status_msg),
                          "Copied config from %s.", id);
 
             } else if (ctrl && IsKeyPressed(KEY_X)) {
-                ps.btn_clip_color         = cur_col;
-                ps.btn_clip_color_pressed = cur_colp;
+                ps.btn_clip_color              = cur_col;
+                ps.btn_clip_color_pressed      = cur_colp;
                 strncpy(ps.btn_clip_action, cur_act, MAX_ACTION_LEN - 1);
                 ps.btn_clip_action[MAX_ACTION_LEN - 1] = '\0';
-                ps.btn_clip_gif_overlay   = cur_gif;
-                ps.btn_clip_valid         = true;
+                ps.btn_clip_gif_overlay        = cur_gif;
+                ps.btn_clip_repeat_on_hold     = cur_rep;
+                ps.btn_clip_hold_delay_ms      = cur_hd;
+                ps.btn_clip_repeat_interval_ms = cur_ri;
+                ps.btn_clip_valid              = true;
                 app_set_button_color(app, sel, app->config.default_color);
                 app_set_button_color_pressed(app, sel, app->config.default_color_pressed);
                 app_set_button_action(app, sel, "");
                 app_set_button_gif_overlay(app, sel, 0);
+                app_set_button_repeat(app, sel, 0, 500, 100);
                 ps.last_sel = -2;
                 snprintf(app->status_msg, sizeof(app->status_msg),
                          "Cut config from %s.", id);
@@ -1256,6 +1322,9 @@ int main(void) {
                 app_set_button_color_pressed(app, sel, ps.btn_clip_color_pressed);
                 app_set_button_action(app, sel, ps.btn_clip_action);
                 app_set_button_gif_overlay(app, sel, ps.btn_clip_gif_overlay);
+                app_set_button_repeat(app, sel, ps.btn_clip_repeat_on_hold,
+                                      ps.btn_clip_hold_delay_ms,
+                                      ps.btn_clip_repeat_interval_ms);
                 ps.last_sel = -2;
                 snprintf(app->status_msg, sizeof(app->status_msg),
                          "Pasted config to %s.", id);
@@ -1265,6 +1334,7 @@ int main(void) {
                 app_set_button_color_pressed(app, sel, app->config.default_color_pressed);
                 app_set_button_action(app, sel, "");
                 app_set_button_gif_overlay(app, sel, 0);
+                app_set_button_repeat(app, sel, 0, 500, 100);
                 ps.last_sel = -2;
                 snprintf(app->status_msg, sizeof(app->status_msg),
                          "Cleared config for %s.", id);

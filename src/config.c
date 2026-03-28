@@ -22,6 +22,7 @@ static ButtonCfg *find_or_create(Config *cfg, const char *section) {
     ButtonCfg *btn = &cfg->buttons[cfg->num_buttons++];
     memset(btn, 0, sizeof(*btn));
     strncpy(btn->id, section, sizeof(btn->id) - 1);
+    btn->id[sizeof(btn->id) - 1] = '\0';
     btn->color         = cfg->default_color;
     btn->color_pressed = cfg->default_color_pressed;
     return btn;
@@ -54,8 +55,15 @@ static int cfg_ini_handler(void *user, const char *section, const char *name, co
         btn->color_pressed = colour_velocity(value);
     } else if (strcmp(name, "action") == 0) {
         strncpy(btn->action, value, MAX_ACTION_LEN - 1);
+        btn->action[MAX_ACTION_LEN - 1] = '\0';
     } else if (strcmp(name, "gif_overlay") == 0) {
         btn->gif_overlay = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
+    } else if (strcmp(name, "repeat_on_hold") == 0) {
+        btn->repeat_on_hold = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
+    } else if (strcmp(name, "hold_delay_ms") == 0) {
+        btn->hold_delay_ms = atoi(value);
+    } else if (strcmp(name, "repeat_interval_ms") == 0) {
+        btn->repeat_interval_ms = atoi(value);
     }
     return 1;
 }
@@ -187,6 +195,13 @@ int config_save(const Config *cfg, const char *path) {
             fprintf(f, "action        = %s\n", btn->action);
         if (btn->gif_overlay)
             fprintf(f, "gif_overlay   = true\n");
+        if (btn->repeat_on_hold) {
+            fprintf(f, "repeat_on_hold     = true\n");
+            fprintf(f, "hold_delay_ms      = %d\n",
+                    btn->hold_delay_ms > 0 ? btn->hold_delay_ms : 500);
+            fprintf(f, "repeat_interval_ms = %d\n",
+                    btn->repeat_interval_ms > 0 ? btn->repeat_interval_ms : 100);
+        }
         fprintf(f, "\n");
     }
 
