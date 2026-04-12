@@ -1,10 +1,12 @@
 /*
  * launc-macro-gui — raylib + raygui front-end for launc-macro
  *
- * Window layout (fixed 820×700):
+ * Window layout (fixed 820×728):
  *
  *  ┌──────────────────────────────────────────────────────────────────┐
  *  │ header: title / connect / start / [Opts] / status indicator      │ 50px
+ *  ├──────────────────────────────────────────────────────────────────┤
+ *  │ LAYERS: [1] [2] ... [+]   (layer bar)                            │ 28px
  *  ├─────────────────────────────────┬────────────────────────────────┤
  *  │                                 │  Button Editor                  │
  *  │  Launchpad 9×9 visual grid      │    color dropdowns + swatches  │
@@ -12,17 +14,16 @@
  *  │                                 │  Config  path [...]            │
  *  ├─────────────────────────────────┴────────────────────────────────┤
  *  │ GIF SETTINGS   File: [path] [...]  Load | Clear  FPS  ColorMode  │
+ *  │ EQUALIZER  [toggle]  [EQ Settings]                               │
  *  ├──────────────────────────────────────────────────────────────────┤
  *  │ status bar                                                        │ 25px
  *  └──────────────────────────────────────────────────────────────────┘
  *
  *  Floating overlays (drawn last, over everything):
- *    • gif_fb_visible  — file browser popup anchored to GIF panel
- *    • cfg_fb_visible  — file browser popup anchored to CONFIG section
- *    • options_open    — options/theme editor panel (top-right)
- *
- * raygui dropdown note: GuiDropdownBox must be drawn last so it appears
- * on top of other controls. Only one dropdown may be open at a time.
+ *    • gif_fb_visible  — file browser popup (GIF)
+ *    • cfg_fb_visible  — file browser popup (config)
+ *    • options_open    — theme/font options panel
+ *    • eq_open         — equalizer settings panel
  */
 
 #ifdef _WIN32
@@ -53,39 +54,46 @@
 
 /* ── Layout constants ───────────────────────────────────────────────────────── */
 
-#define WIN_W    820
-#define WIN_H    700
-#define HDR_H     50
-#define SBAR_H    25
-#define PAD       12
+#define WIN_W        820
+#define WIN_H        728
+#define HDR_H         50
+#define LAYER_BAR_H   28
+#define LAYER_BAR_Y   HDR_H
+#define SBAR_H        25
+#define PAD           12
 
 /* Launchpad grid */
 #define BTN_SZ    38
 #define BTN_GAP    4
 #define BTN_STEP  (BTN_SZ + BTN_GAP)
 #define GRID_X    PAD
-#define GRID_Y    (HDR_H + PAD + 16)   /* +16 for column-index labels above */
+#define GRID_Y    (HDR_H + LAYER_BAR_H + PAD + 16)   /* +16 for column-index labels */
 
 /* Right info panel */
 #define RPANEL_X  (GRID_X + 9 * BTN_STEP + PAD * 2)
 #define RPANEL_W  (WIN_W - RPANEL_X - PAD)
 #define RPANEL_Y  GRID_Y
 
-/* GIF panel (below the launchpad grid) — compact (no inline browser) */
+/* GIF panel (below the launchpad grid) */
 #define GIF_PANEL_Y  (GRID_Y + 9 * BTN_STEP + PAD)
 #define GIF_PANEL_H  (WIN_H - SBAR_H - GIF_PANEL_Y - PAD)
 
-/* Config panel (right column, below the button editor).
-   Must clear the bottom of the button editor: RPANEL_Y(78) + ~426 of controls. */
-#define CFG_PANEL_Y  516
+/* Config panel (right column, below the button editor) */
+#define CFG_PANEL_Y  546
 
 /* Options overlay panel */
 #define OPTS_W    340
 #define OPTS_H    420
 #define OPTS_X    ((WIN_W - OPTS_W) / 2)
-#define OPTS_Y    (HDR_H + 6)
+#define OPTS_Y    (HDR_H + LAYER_BAR_H + 6)
 
-/* Browse-button width (the small [...] next to path inputs) */
+/* Equalizer settings overlay */
+#define EQ_PANEL_W   310
+#define EQ_PANEL_H   220
+#define EQ_PANEL_X   ((WIN_W - EQ_PANEL_W) / 2)
+#define EQ_PANEL_Y   (HDR_H + LAYER_BAR_H + 40)
+
+/* Browse-button width */
 #define BROWSE_BTN_W  26
 
 /* Dropdown identifiers */
@@ -94,6 +102,7 @@
 #define DROPDOWN_COLOR_PRESSED 2
 #define DROPDOWN_ACTION_TYPE   3
 #define DROPDOWN_GIF_MODE      4
+#define DROPDOWN_EQ_COLOR      5
 
 /* ── File browser ───────────────────────────────────────────────────────────── */
 
@@ -108,7 +117,7 @@ typedef struct {
     int         count;
     int         scroll;
     int         selected;
-    const char *filter;   /* e.g. ".gif", NULL = all */
+    const char *filter;
 } FileBrowser;
 
 static int fb_strcmp(const void *a, const void *b) {
@@ -229,7 +238,6 @@ static int fb_draw(FileBrowser *fb, int x, int y, int w, int h,
     DrawRectangleLinesEx((Rectangle){(float)x,(float)y,(float)w,(float)h},
                          1, THEME_BTN_BORDER);
 
-    /* Current directory (tail-truncated) */
     int  cwd_len   = (int)strlen(fb->cwd);
     int  max_chars = (w - 8) / 7;
     char cwd_disp[FB_NAME_LEN];
@@ -243,8 +251,8 @@ static int fb_draw(FileBrowser *fb, int x, int y, int w, int h,
     int list_h   = h - FB_ROW_H - 2;
     int vis_rows = list_h / FB_ROW_H;
 
-    /* Mouse-wheel scroll */
-    if (!locked && CheckCollisionPointRec(mouse, (Rectangle){(float)x,(float)list_y,(float)w,(float)list_h})) {
+    if (!locked && CheckCollisionPointRec(mouse,
+            (Rectangle){(float)x,(float)list_y,(float)w,(float)list_h})) {
         float wheel = GetMouseWheelMove();
         if (wheel != 0.0f) {
             fb->scroll -= (int)wheel;
@@ -301,7 +309,6 @@ static int fb_draw(FileBrowser *fb, int x, int y, int w, int h,
     }
     EndScissorMode();
 
-    /* Scrollbar */
     if (fb->count > vis_rows) {
         float sb_h = (float)list_h * vis_rows / fb->count;
         float sb_y = (float)list_y + (float)list_h * fb->scroll / fb->count;
@@ -310,12 +317,12 @@ static int fb_draw(FileBrowser *fb, int x, int y, int w, int h,
     return result;
 }
 
-/* ── GUI options (font + colours, persisted to gui.conf) ───────────────────── */
+/* ── GUI options ────────────────────────────────────────────────────────────── */
 
 typedef struct {
     char font_path[512];
-    int  font_size;            /* 0 = use default */
-    char col_bg[8];            /* 6-char hex RRGGBB, no '#' */
+    int  font_size;
+    char col_bg[8];
     char col_header[8];
     char col_accent[8];
     char col_btn_off[8];
@@ -341,7 +348,6 @@ static void opts_defaults(GuiOptions *o) {
     color_to_hex(THEME_BTN_OFF,     o->col_btn_off);
 }
 
-/* Apply GuiOptions to live theme variables */
 static void opts_apply(GuiOptions *o) {
     THEME_BG          = parse_hex_color(o->col_bg,     THEME_BG);
     THEME_HEADER_BG   = parse_hex_color(o->col_header, THEME_HEADER_BG);
@@ -353,7 +359,6 @@ static void opts_apply(GuiOptions *o) {
         THEME_FONT_VALUE = o->font_size;
         GuiSetStyle(DEFAULT, TEXT_SIZE, THEME_FONT_UI);
     }
-
     if (o->font_path[0] != '\0') {
         Font f = LoadFont(o->font_path);
         if (f.texture.id > 0) {
@@ -369,7 +374,6 @@ static void opts_apply(GuiOptions *o) {
     }
 }
 
-/* Derive gui.conf path from the launchpad config path */
 static void gui_opts_path(const char *cfg_path, char *buf, size_t sz) {
     strncpy(buf, cfg_path, sz - 1);
     char *sep = strrchr(buf, '/');
@@ -411,7 +415,7 @@ static void opts_load(GuiOptions *o, const char *path) {
         e = v + strlen(v) - 1;
         while (e > v && isspace((unsigned char)*e)) *e-- = '\0';
 
-        if (!strcmp(k, "font_path"))   strncpy(o->font_path,  v, sizeof(o->font_path)  - 1);
+        if      (!strcmp(k, "font_path"))   strncpy(o->font_path,  v, sizeof(o->font_path)  - 1);
         else if (!strcmp(k, "font_size"))   o->font_size = atoi(v);
         else if (!strcmp(k, "col_bg"))      strncpy(o->col_bg,     v, sizeof(o->col_bg)     - 1);
         else if (!strcmp(k, "col_header"))  strncpy(o->col_header, v, sizeof(o->col_header) - 1);
@@ -428,7 +432,10 @@ static const char *COLOUR_DROPDOWN =
     "green_low;green_med;green_max;"
     "yellow_low;yellow_med;yellow_max";
 
-static const char *ACTION_TYPE_DROPDOWN = "none;key;string;media;app;terminal";
+/* none=0  key=1  string=2  media=3  app=4  terminal=5  layer=6 */
+static const char *ACTION_TYPE_DROPDOWN = "none;key;string;media;app;terminal;layer";
+
+static const char *EQ_COLOR_DROPDOWN = "green;red;yellow";
 
 static int vel_to_palette_idx(uint8_t vel) {
     for (int i = 0; i < PALETTE_COUNT; i++)
@@ -467,7 +474,7 @@ static void draw_launchpad(AppState *app, int *sel, bool locked) {
 
     for (int row = 0; row < 9; row++) {
         for (int col = 0; col < 9; col++) {
-            if (row == 0 && col == 8) continue; /* does not exist on Launchpad */
+            if (row == 0 && col == 8) continue;
 
             int idx;
             if (row == 0)      idx = col;
@@ -507,14 +514,12 @@ static void draw_launchpad(AppState *app, int *sel, bool locked) {
         }
     }
 
-    /* Column labels 1..8 above the grid */
     for (int c = 0; c < 8; c++) {
         DrawText(TextFormat("%d", c + 1),
                  GRID_X + c * BTN_STEP + BTN_SZ / 2 - 3,
                  GRID_Y - THEME_FONT_SMALL - 4,
                  THEME_FONT_SMALL, THEME_BTN_BORDER);
     }
-    /* Row labels A..H to the right of the side column */
     for (int row = 1; row <= 8; row++) {
         char letter[2] = { (char)('A' + row - 1), '\0' };
         DrawText(letter,
@@ -524,11 +529,69 @@ static void draw_launchpad(AppState *app, int *sel, bool locked) {
     }
 }
 
+/* ── Layer bar ──────────────────────────────────────────────────────────────── */
+
+static void draw_layer_bar(AppState *app, bool locked) {
+    DrawRectangle(0, LAYER_BAR_Y, WIN_W, LAYER_BAR_H, (Color){20,20,26,255});
+    DrawLine(0, LAYER_BAR_Y + LAYER_BAR_H - 1, WIN_W,
+             LAYER_BAR_Y + LAYER_BAR_H - 1, THEME_DIVIDER);
+
+    int x = PAD;
+    int y = LAYER_BAR_Y + 3;
+    int bh = LAYER_BAR_H - 6;
+
+    DrawText("Layers:", x, y + (bh - THEME_FONT_SMALL) / 2,
+             THEME_FONT_SMALL, THEME_TEXT_LABEL2);
+    x += 56;
+
+    int n = app->config.num_layers;
+    for (int i = 0; i < n; i++) {
+        int bw = 28;
+        Rectangle r = { (float)x, (float)y, (float)bw, (float)bh };
+        bool is_active = (i == app->active_layer);
+
+        Color bg    = is_active ? THEME_TEXT_ACCENT : (Color){38,38,50,255};
+        Color fg    = is_active ? (Color){255,255,255,255} : THEME_TEXT_LABEL2;
+        Color brd   = is_active ? WHITE : THEME_BTN_BORDER;
+
+        DrawRectangleRec(r, bg);
+        DrawRectangleLinesEx(r, 1, brd);
+
+        char lbl[4];
+        snprintf(lbl, sizeof(lbl), "%d", i + 1);
+        int tw = MeasureText(lbl, THEME_FONT_SMALL);
+        DrawText(lbl, x + (bw - tw) / 2, y + (bh - THEME_FONT_SMALL) / 2,
+                 THEME_FONT_SMALL, fg);
+
+        /* Click to switch layer */
+        if (!locked && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            Vector2 m = GetMousePosition();
+            if (CheckCollisionPointRec(m, r))
+                app_switch_layer(app, i);
+        }
+        x += bw + 3;
+    }
+
+    /* "+" button — add a new layer */
+    if (n < MAX_LAYERS) {
+        int bw = 22;
+        Rectangle r = { (float)x, (float)y, (float)bw, (float)bh };
+        if (!locked) {
+            if (GuiButton(r, "+")) {
+                int new_idx = app_add_layer(app);
+                if (new_idx >= 0) app_switch_layer(app, new_idx);
+            }
+        } else {
+            GuiSetState(STATE_DISABLED);
+            GuiButton(r, "+");
+            GuiSetState(STATE_NORMAL);
+        }
+    }
+}
+
 /* ── Header ─────────────────────────────────────────────────────────────────── */
 
-/* forward-declare so draw_header can toggle ps->options_open */
 typedef struct PanelState PanelState;
-
 static void draw_header(AppState *app, PanelState *ps);
 
 /* ── Panel state ─────────────────────────────────────────────────────────────── */
@@ -546,35 +609,49 @@ struct PanelState {
     char config_path_buf[512];
     int  config_path_edit;
 
-    /* GIF settings */
+    /* GIF settings (per-layer, refreshed when active_layer changes) */
     char gif_path[512];
     int  gif_path_edit;
     char fps_buf[16];
     int  fps_edit;
     int  gif_mode_active;
+    int  last_gif_layer;  /* tracks which layer gif fields were loaded from */
+
+    /* Equalizer settings overlay */
+    int  eq_open;
+    int  eq_enabled_val;
+    char eq_x_buf[8];
+    char eq_y_buf[8];
+    char eq_w_buf[8];
+    char eq_h_buf[8];
+    int  eq_color_active;
+    char eq_device_buf[128];
+    int  eq_x_edit, eq_y_edit, eq_w_edit, eq_h_edit, eq_dev_edit;
+    Rectangle eq_color_rect;
 
     /* Dropdowns */
     int  open_dropdown;
     int  last_sel;
+    int  last_edit_layer;  /* tracks active_layer for button editor refresh */
     Rectangle color_rect;
     Rectangle color_pressed_rect;
     Rectangle action_type_rect;
     Rectangle gif_mode_rect;
 
-    /* File browsers (popup overlays) */
+    /* File browsers */
     FileBrowser gif_fb;
     FileBrowser cfg_fb;
-    int         gif_fb_visible;   /* GIF browse popup open */
-    int         cfg_fb_visible;   /* Config browse popup open */
+    int         gif_fb_visible;
+    int         cfg_fb_visible;
 
-    /* Repeat-on-hold settings */
+    /* Repeat-on-hold */
     int  repeat_on_hold_val;
     char hold_delay_buf[8];
     char repeat_interval_buf[8];
     int  hold_delay_edit;
     int  repeat_interval_edit;
 
-    /* Button clipboard (Ctrl+C/X/V between buttons) */
+    /* Button clipboard */
     bool    btn_clip_valid;
     uint8_t btn_clip_color;
     uint8_t btn_clip_color_pressed;
@@ -587,16 +664,15 @@ struct PanelState {
     /* Options panel */
     int        options_open;
     GuiOptions opts;
-    FileBrowser font_fb;           /* font browse popup inside options */
+    FileBrowser font_fb;
     int         font_fb_visible;
-    /* edit states for options inputs */
-    int  opts_fp_edit;             /* font path textbox */
-    int  opts_fs_edit;             /* font size textbox */
+    int  opts_fp_edit;
+    int  opts_fs_edit;
     int  opts_bg_edit;
     int  opts_hdr_edit;
     int  opts_acc_edit;
     int  opts_btn_edit;
-    char opts_fs_buf[8];           /* font-size string */
+    char opts_fs_buf[8];
 };
 
 /* ── Action string helpers ──────────────────────────────────────────────────── */
@@ -611,28 +687,27 @@ static void parse_action(const char *action, int *type_out,
     else if (!strncmp(action, "media:",     6)) { *type_out = 3; strncpy(val_out, action + 6, val_size-1); }
     else if (!strncmp(action, "app:",       4)) { *type_out = 4; strncpy(val_out, action + 4, val_size-1); }
     else if (!strncmp(action, "terminal:",  9)) { *type_out = 5; strncpy(val_out, action + 9, val_size-1); }
+    else if (!strncmp(action, "layer:",     6)) { *type_out = 6; strncpy(val_out, action + 6, val_size-1); }
     else { *type_out = 4; snprintf(val_out, val_size, "%s", action); }
 }
 
 static void assemble_action(char *out, int size, int type_active, const char *value) {
-    static const char *prefixes[] = { "", "key:", "string:", "media:", "app:", "terminal:" };
+    static const char *prefixes[] = { "", "key:", "string:", "media:", "app:", "terminal:", "layer:" };
     if (type_active == 0 || value[0] == '\0') out[0] = '\0';
     else snprintf(out, size, "%s%s", prefixes[type_active], value);
 }
 
-/* Returns true if any text box is currently in edit mode (used to suppress
-   button-level shortcuts while the user is typing). */
 static bool any_textbox_active(const PanelState *ps) {
     return ps->action_value_edit || ps->config_path_edit ||
            ps->gif_path_edit    || ps->fps_edit          ||
            ps->opts_fp_edit     || ps->opts_fs_edit      ||
            ps->opts_bg_edit     || ps->opts_hdr_edit     ||
-           ps->opts_acc_edit    || ps->opts_btn_edit;
+           ps->opts_acc_edit    || ps->opts_btn_edit     ||
+           ps->hold_delay_edit  || ps->repeat_interval_edit ||
+           ps->eq_x_edit || ps->eq_y_edit || ps->eq_w_edit ||
+           ps->eq_h_edit || ps->eq_dev_edit;
 }
 
-/* Ctrl+C/X/V clipboard support for any active text box.
-   Call this immediately after GuiTextBox(), passing the same buffer and the
-   current edit-mode flag.  Paste overwrites the full buffer contents. */
 static void textbox_clipboard(char *buf, int buf_size, bool in_edit) {
     if (!in_edit) return;
     bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
@@ -651,6 +726,29 @@ static void textbox_clipboard(char *buf, int buf_size, bool in_edit) {
     }
 }
 
+/* Refresh GIF/EQ PanelState fields from the current active layer */
+static void sync_ps_from_layer(AppState *app, PanelState *ps) {
+    int li = app->active_layer;
+    if (li >= app->config.num_layers) li = 0;
+    const LayerCfg *layer = &app->config.layers[li];
+
+    strncpy(ps->gif_path, layer->gif_path, sizeof(ps->gif_path) - 1);
+    ps->gif_path[sizeof(ps->gif_path) - 1] = '\0';
+    snprintf(ps->fps_buf, sizeof(ps->fps_buf), "%.2g", layer->fps > 0 ? (double)layer->fps : 0.0);
+    ps->gif_mode_active = layer->gif_mode;
+
+    ps->eq_enabled_val  = layer->eq_enabled;
+    snprintf(ps->eq_x_buf, sizeof(ps->eq_x_buf), "%d", layer->eq_x);
+    snprintf(ps->eq_y_buf, sizeof(ps->eq_y_buf), "%d", layer->eq_y);
+    snprintf(ps->eq_w_buf, sizeof(ps->eq_w_buf), "%d", layer->eq_width  > 0 ? layer->eq_width  : 8);
+    snprintf(ps->eq_h_buf, sizeof(ps->eq_h_buf), "%d", layer->eq_height > 0 ? layer->eq_height : 7);
+    ps->eq_color_active = layer->eq_color;
+    strncpy(ps->eq_device_buf, layer->eq_device, sizeof(ps->eq_device_buf) - 1);
+    ps->eq_device_buf[sizeof(ps->eq_device_buf) - 1] = '\0';
+
+    ps->last_gif_layer = li;
+}
+
 /* ── Right panel ─────────────────────────────────────────────────────────────── */
 
 static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
@@ -659,14 +757,17 @@ static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
     int w = RPANEL_W;
 
     bool any_locked = (ps->open_dropdown != DROPDOWN_NONE)
-                   || ps->gif_fb_visible || ps->cfg_fb_visible || ps->options_open;
+                   || ps->gif_fb_visible || ps->cfg_fb_visible
+                   || ps->options_open   || ps->eq_open;
 
-    /* Refresh editor state on selection change */
-    if (sel != ps->last_sel) {
-        ps->last_sel = sel;
+    /* Refresh when selection OR active layer changes */
+    if (sel != ps->last_sel || app->active_layer != ps->last_edit_layer) {
+        ps->last_sel        = sel;
+        ps->last_edit_layer = app->active_layer;
         if (sel >= 0) {
-            const char *id = button_index_to_id(sel);
-            const ButtonCfg *btn = config_find_button(&app->config, id);
+            const char *id  = button_index_to_id(sel);
+            const ButtonCfg *btn = config_find_button_in_layer(
+                &app->config, app->active_layer, id);
             if (btn) {
                 ps->color_active         = vel_to_palette_idx(btn->color);
                 ps->color_pressed_active = vel_to_palette_idx(btn->color_pressed);
@@ -691,8 +792,8 @@ static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
         }
     }
 
-    /* ── BUTTON EDITOR ── */
-    DrawText("BUTTON EDITOR", x, y, THEME_FONT_LABEL, THEME_TEXT_SECTION);
+    DrawText(TextFormat("BUTTON EDITOR  (layer %d)", app->active_layer + 1),
+             x, y, THEME_FONT_LABEL, THEME_TEXT_SECTION);
     y += 20;
 
     if (sel >= 0) {
@@ -737,7 +838,7 @@ static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
                             ps->action_type_active, ps->action_value);
             app_set_button_action(app, sel, assembled);
             snprintf(app->status_msg, sizeof(app->status_msg),
-                     "Action set for %s.", id);
+                     "Action set for %s (layer %d).", id, app->active_layer + 1);
         }
         if (any_locked) GuiSetState(STATE_NORMAL);
         y += 32;
@@ -781,7 +882,6 @@ static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
             ps->repeat_interval_edit = !ps->repeat_interval_edit;
         if (any_locked) GuiSetState(STATE_NORMAL);
         textbox_clipboard(ps->repeat_interval_buf, sizeof(ps->repeat_interval_buf), ps->repeat_interval_edit);
-        y += 30;
 
     } else {
         DrawText("Click a button to edit it", x, y, THEME_FONT_MID, THEME_TEXT_DIM);
@@ -789,26 +889,28 @@ static void draw_right_panel(AppState *app, int sel, PanelState *ps) {
         ps->color_rect         = (Rectangle){(float)x,(float)y,          (float)w,24};
         ps->color_pressed_rect = (Rectangle){(float)x,(float)(y+54),     (float)w,24};
         ps->action_type_rect   = (Rectangle){(float)x,(float)(y+108),    (float)w,24};
-        y += 268;
     }
-
 }
 
-/* ── GIF panel (left column, below the grid) ────────────────────────────────── */
+/* ── GIF panel ───────────────────────────────────────────────────────────────── */
 
 static void draw_gif_panel(AppState *app, PanelState *ps) {
     bool any_locked = (ps->open_dropdown != DROPDOWN_NONE)
-                   || ps->cfg_fb_visible || ps->options_open;
+                   || ps->cfg_fb_visible || ps->options_open || ps->eq_open;
     bool busy = app->running;
+
+    /* Refresh gif fields when active layer changes */
+    if (app->active_layer != ps->last_gif_layer)
+        sync_ps_from_layer(app, ps);
 
     int y = GIF_PANEL_Y;
     int x = GRID_X;
-    int w = RPANEL_X - PAD - GRID_X;   /* left column = ~390px */
+    int w = RPANEL_X - PAD - GRID_X;
 
-    DrawText("GIF SETTINGS", x, y, THEME_FONT_LABEL, THEME_TEXT_SECTION);
+    DrawText(TextFormat("GIF SETTINGS  (layer %d)", app->active_layer + 1),
+             x, y, THEME_FONT_LABEL, THEME_TEXT_SECTION);
     y += 18;
 
-    /* File row: textbox + browse button */
     DrawText("File:", x, y, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
     y += 16;
 
@@ -825,42 +927,168 @@ static void draw_gif_panel(AppState *app, PanelState *ps) {
     if (busy || any_locked) GuiSetState(STATE_NORMAL);
     y += 28;
 
-    /* Load / Clear row */
     float lw = (float)(w / 2 - 3);
     if (busy || any_locked) GuiSetState(STATE_DISABLED);
-    if (GuiButton((Rectangle){(float)x,(float)y,lw,24}, "Load GIF"))
-        app_load_gif(app, ps->gif_path);
+    if (GuiButton((Rectangle){(float)x,(float)y,lw,24}, "Load GIF")) {
+        int li = app->active_layer;
+        strncpy(app->config.layers[li].gif_path, ps->gif_path,
+                sizeof(app->config.layers[li].gif_path) - 1);
+        app_load_layer_gif(app, li, ps->gif_path);
+    }
     if (GuiButton((Rectangle){(float)(x + w/2 + 3),(float)y,lw,24}, "Clear")) {
-        app_clear_gif(app);
+        app_clear_layer_gif(app, app->active_layer);
         ps->gif_path[0] = '\0';
+        app->config.layers[app->active_layer].gif_path[0] = '\0';
     }
     if (busy || any_locked) GuiSetState(STATE_NORMAL);
     y += 30;
 
-    /* Color mode dropdown — full column width */
     DrawText("Color mode:", x, y, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
     y += 16;
     ps->gif_mode_rect = (Rectangle){(float)x,(float)y,(float)w,22};
     y += 30;
 
-    /* FPS row */
     DrawText("FPS:", x, y + 4, THEME_FONT_SMALL, THEME_TEXT_LABEL2);
     int fps_x = x + MeasureText("FPS:", THEME_FONT_SMALL) + 6;
     if (busy || any_locked) GuiSetState(STATE_DISABLED);
     if (GuiTextBox((Rectangle){(float)fps_x,(float)y,52,22},
                    ps->fps_buf, (int)sizeof(ps->fps_buf), ps->fps_edit)) {
         ps->fps_edit = !ps->fps_edit;
-        if (!ps->fps_edit) app->fps = (float)atof(ps->fps_buf);
+        if (!ps->fps_edit)
+            app->config.layers[app->active_layer].fps = (float)atof(ps->fps_buf);
     }
     if (busy || any_locked) GuiSetState(STATE_NORMAL);
     textbox_clipboard(ps->fps_buf, sizeof(ps->fps_buf), ps->fps_edit);
+    y += 30;
+
+    /* Equalizer toggle + settings button */
+    DrawLine(x, y, x + w, y, THEME_DIVIDER);
+    y += 6;
+    DrawText(TextFormat("EQUALIZER  (layer %d)", app->active_layer + 1),
+             x, y, THEME_FONT_LABEL, THEME_TEXT_SECTION);
+    y += 16;
+
+    if (any_locked) GuiSetState(STATE_DISABLED);
+    int eq_en = app->config.layers[app->active_layer].eq_enabled;
+    if (GuiButton((Rectangle){(float)x,(float)y,(float)(w/2 - 3),22},
+                  eq_en ? "EQ: ON" : "EQ: OFF")) {
+        app->config.layers[app->active_layer].eq_enabled = !eq_en;
+        ps->eq_enabled_val = !eq_en;
+    }
+    if (GuiButton((Rectangle){(float)(x + w/2 + 3),(float)y,(float)(w/2 - 3),22},
+                  "EQ Settings"))
+        ps->eq_open = !ps->eq_open;
+    if (any_locked) GuiSetState(STATE_NORMAL);
+
+#ifndef HAVE_PULSEAUDIO
+    y += 24;
+    DrawText("(EQ requires PulseAudio — recompile with libpulse-simple)",
+             x, y, THEME_FONT_SMALL, THEME_TEXT_DIM);
+#endif
 }
 
-/* ── Config panel (right column, below the grid) ────────────────────────────── */
+/* ── EQ settings overlay ────────────────────────────────────────────────────── */
+
+static void draw_eq_panel(AppState *app, PanelState *ps) {
+    int x = EQ_PANEL_X, y = EQ_PANEL_Y, w = EQ_PANEL_W;
+
+    /* Dim background */
+    DrawRectangle(0, 0, WIN_W, WIN_H, (Color){0,0,0,110});
+
+    DrawRectangle(x, y, w, EQ_PANEL_H, (Color){28,28,36,255});
+    DrawRectangleLinesEx((Rectangle){(float)x,(float)y,(float)w,EQ_PANEL_H},
+                         1, THEME_BTN_BORDER_HOV);
+
+    DrawText(TextFormat("EQUALIZER SETTINGS  (layer %d)", app->active_layer + 1),
+             x + PAD, y + 8, THEME_FONT_LABEL, THEME_TEXT_SECTION);
+    if (GuiButton((Rectangle){(float)(x+w-30),(float)(y+4),24,24}, "X"))
+        ps->eq_open = 0;
+    y += 34;
+
+    int li = app->active_layer;
+    LayerCfg *layer = &app->config.layers[li];
+
+    int ix = x + PAD, iw = w - PAD * 2;
+
+    /* Enabled toggle */
+    if (GuiButton((Rectangle){(float)ix,(float)y,(float)(iw/2 - 2),22},
+                  ps->eq_enabled_val ? "Enabled: YES" : "Enabled: NO")) {
+        ps->eq_enabled_val   = !ps->eq_enabled_val;
+        layer->eq_enabled    = ps->eq_enabled_val;
+    }
+    y += 28;
+
+    /* Position row: X, Y */
+    DrawText("Position X:", ix, y + 3, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
+    int lbl_w = MeasureText("Position X:", THEME_FONT_LABEL) + 6;
+    if (GuiTextBox((Rectangle){(float)(ix + lbl_w),(float)y,40,22},
+                   ps->eq_x_buf, (int)sizeof(ps->eq_x_buf), ps->eq_x_edit))
+        ps->eq_x_edit = !ps->eq_x_edit;
+    textbox_clipboard(ps->eq_x_buf, sizeof(ps->eq_x_buf), ps->eq_x_edit);
+
+    int x2 = ix + lbl_w + 48;
+    DrawText("Y:", x2, y + 3, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
+    int lw2 = MeasureText("Y:", THEME_FONT_LABEL) + 4;
+    if (GuiTextBox((Rectangle){(float)(x2 + lw2),(float)y,40,22},
+                   ps->eq_y_buf, (int)sizeof(ps->eq_y_buf), ps->eq_y_edit))
+        ps->eq_y_edit = !ps->eq_y_edit;
+    textbox_clipboard(ps->eq_y_buf, sizeof(ps->eq_y_buf), ps->eq_y_edit);
+    y += 28;
+
+    /* Size row: W, H */
+    DrawText("Width:", ix, y + 3, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
+    int wlbl_w = MeasureText("Width:", THEME_FONT_LABEL) + 6;
+    if (GuiTextBox((Rectangle){(float)(ix + wlbl_w),(float)y,40,22},
+                   ps->eq_w_buf, (int)sizeof(ps->eq_w_buf), ps->eq_w_edit))
+        ps->eq_w_edit = !ps->eq_w_edit;
+    textbox_clipboard(ps->eq_w_buf, sizeof(ps->eq_w_buf), ps->eq_w_edit);
+
+    int x3 = ix + wlbl_w + 48;
+    DrawText("Height:", x3, y + 3, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
+    int hlbl_w = MeasureText("Height:", THEME_FONT_LABEL) + 4;
+    if (GuiTextBox((Rectangle){(float)(x3 + hlbl_w),(float)y,40,22},
+                   ps->eq_h_buf, (int)sizeof(ps->eq_h_buf), ps->eq_h_edit))
+        ps->eq_h_edit = !ps->eq_h_edit;
+    textbox_clipboard(ps->eq_h_buf, sizeof(ps->eq_h_buf), ps->eq_h_edit);
+    y += 28;
+
+    /* Color dropdown placeholder (drawn after other controls) */
+    DrawText("Color:", ix, y + 3, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
+    int clbl_w = MeasureText("Color:", THEME_FONT_LABEL) + 6;
+    ps->eq_color_rect = (Rectangle){(float)(ix + clbl_w),(float)y,(float)(iw - clbl_w),22};
+    y += 28;
+
+    /* Audio device */
+    DrawText("Audio device:", ix, y + 3, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
+    y += 18;
+    if (GuiTextBox((Rectangle){(float)ix,(float)y,(float)iw,22},
+                   ps->eq_device_buf, (int)sizeof(ps->eq_device_buf), ps->eq_dev_edit))
+        ps->eq_dev_edit = !ps->eq_dev_edit;
+    textbox_clipboard(ps->eq_device_buf, sizeof(ps->eq_device_buf), ps->eq_dev_edit);
+    DrawText("(empty = default source, or e.g. alsa_output.*.monitor)",
+             ix, y + 24, THEME_FONT_SMALL, THEME_TEXT_DIM);
+    y += 44;
+
+    /* Apply button */
+    if (GuiButton((Rectangle){(float)(ix + iw - 80),(float)y,80,24}, "Apply")) {
+        layer->eq_enabled = ps->eq_enabled_val;
+        layer->eq_x       = atoi(ps->eq_x_buf);
+        layer->eq_y       = atoi(ps->eq_y_buf);
+        layer->eq_width   = atoi(ps->eq_w_buf);
+        layer->eq_height  = atoi(ps->eq_h_buf);
+        layer->eq_color   = ps->eq_color_active;
+        strncpy(layer->eq_device, ps->eq_device_buf, sizeof(layer->eq_device) - 1);
+        snprintf(app->status_msg, sizeof(app->status_msg),
+                 "EQ settings applied for layer %d. Restart to take effect.",
+                 li + 1);
+    }
+}
+
+/* ── Config panel ────────────────────────────────────────────────────────────── */
 
 static void draw_cfg_panel(AppState *app, PanelState *ps) {
     bool any_locked = (ps->open_dropdown != DROPDOWN_NONE)
-                   || ps->gif_fb_visible || ps->options_open;
+                   || ps->gif_fb_visible || ps->options_open || ps->eq_open;
 
     int y = CFG_PANEL_Y;
     int x = RPANEL_X;
@@ -869,7 +1097,6 @@ static void draw_cfg_panel(AppState *app, PanelState *ps) {
     DrawText("CONFIG", x, y, THEME_FONT_LABEL, THEME_TEXT_SECTION);
     y += 18;
 
-    /* Path row */
     DrawText("Path:", x, y, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
     y += 16;
     float tb_w = (float)(w - BROWSE_BTN_W - 4);
@@ -891,19 +1118,16 @@ static void draw_cfg_panel(AppState *app, PanelState *ps) {
     if (any_locked) GuiSetState(STATE_NORMAL);
     y += 28;
 
-    /* Load / Save row */
     float hw = (float)(w / 2 - 3);
     if (any_locked) GuiSetState(STATE_DISABLED);
     if (GuiButton((Rectangle){(float)x,(float)y,hw,24}, "Load Config")) {
-        snprintf(app->config_path, sizeof(app->config_path),
-                 "%s", ps->config_path_buf);
+        snprintf(app->config_path, sizeof(app->config_path), "%s", ps->config_path_buf);
         app_reload_config(app);
-        ps->last_sel = -2;
+        ps->last_sel        = -2;
+        ps->last_edit_layer = -1;
+        ps->last_gif_layer  = -1;
     }
     if (GuiButton((Rectangle){(float)(x + w/2 + 3),(float)y,hw,24}, "Save Config")) {
-        /* Auto-apply current action panel state so the user doesn't have to
-           click "Apply Action" before saving — mirrors how colour dropdowns
-           immediately commit their changes to in-memory config. */
         if (ps->last_sel >= 0) {
             char assembled[MAX_ACTION_LEN];
             assemble_action(assembled, sizeof(assembled),
@@ -915,6 +1139,18 @@ static void draw_cfg_panel(AppState *app, PanelState *ps) {
         app_save_config(app);
     }
     if (any_locked) GuiSetState(STATE_NORMAL);
+    y += 30;
+
+    /* Delete current layer (greyed out if only 1 layer) */
+    if (app->config.num_layers <= 1 || any_locked) GuiSetState(STATE_DISABLED);
+    if (GuiButton((Rectangle){(float)x,(float)y,(float)w,22},
+                  TextFormat("Del Layer %d", app->active_layer + 1))) {
+        app_delete_layer(app, app->active_layer);
+        ps->last_sel        = -2;
+        ps->last_edit_layer = -1;
+        ps->last_gif_layer  = -1;
+    }
+    if (app->config.num_layers <= 1 || any_locked) GuiSetState(STATE_NORMAL);
 }
 
 /* ── Options panel overlay ───────────────────────────────────────────────────── */
@@ -922,21 +1158,16 @@ static void draw_cfg_panel(AppState *app, PanelState *ps) {
 static void draw_options_panel(AppState *app, PanelState *ps) {
     int x = OPTS_X, y = OPTS_Y, w = OPTS_W;
 
-    /* Shadow / dim */
     DrawRectangle(0, 0, WIN_W, WIN_H, (Color){0,0,0,120});
-
-    /* Panel background */
     DrawRectangle(x, y, w, OPTS_H, (Color){28,28,36,255});
     DrawRectangleLinesEx((Rectangle){(float)x,(float)y,(float)w,OPTS_H},
                          1, THEME_BTN_BORDER_HOV);
 
-    /* Title row */
     DrawText("OPTIONS", x + PAD, y + 10, THEME_FONT_LABEL, THEME_TEXT_SECTION);
     if (GuiButton((Rectangle){(float)(x+w-30),(float)(y+6),24,24}, "X"))
         ps->options_open = 0;
     y += 36;
 
-    /* ── FONT ── */
     DrawLine(x + PAD, y, x + w - PAD, y, THEME_DIVIDER);
     y += 8;
     DrawText("FONT", x + PAD, y, THEME_FONT_LABEL, THEME_TEXT_SECTION);
@@ -967,7 +1198,6 @@ static void draw_options_panel(AppState *app, PanelState *ps) {
     textbox_clipboard(ps->opts_fs_buf, sizeof(ps->opts_fs_buf), ps->opts_fs_edit);
     y += 28;
 
-    /* Font file browser (shown when toggle is on) */
     if (ps->font_fb_visible) {
         int fb_h = 100;
         if (fb_draw(&ps->font_fb, ix, y, iw, fb_h, false,
@@ -983,7 +1213,6 @@ static void draw_options_panel(AppState *app, PanelState *ps) {
     }
     y += 30;
 
-    /* ── COLORS ── */
     DrawLine(x + PAD, y, x + w - PAD, y, THEME_DIVIDER);
     y += 8;
     DrawText("COLORS", ix, y, THEME_FONT_LABEL, THEME_TEXT_SECTION);
@@ -997,11 +1226,10 @@ static void draw_options_panel(AppState *app, PanelState *ps) {
     Color               col_current[] = { THEME_BG, THEME_HEADER_BG,
                                           THEME_TEXT_ACCENT, THEME_BTN_OFF };
 
-    int lbl_w = MeasureText("Background:", THEME_FONT_LABEL) + 4;  /* widest label */
+    int lbl_w = MeasureText("Background:", THEME_FONT_LABEL) + 4;
     for (int i = 0; i < 4; i++) {
         DrawText(col_labels[i], ix, y + 3, THEME_FONT_LABEL, THEME_TEXT_LABEL2);
         int hx = ix + lbl_w;
-        /* live swatch of current value in the textbox */
         Color preview = parse_hex_color(col_bufs[i], col_current[i]);
         DrawRectangle(hx, y, 20, 22, preview);
         DrawRectangleLinesEx((Rectangle){(float)hx,(float)y,20,22}, 1, THEME_BTN_BORDER);
@@ -1015,12 +1243,10 @@ static void draw_options_panel(AppState *app, PanelState *ps) {
         y += 26;
     }
 
-    if (GuiButton((Rectangle){(float)(ix+iw-90),(float)y,90,22}, "Apply Colors")) {
+    if (GuiButton((Rectangle){(float)(ix+iw-90),(float)y,90,22}, "Apply Colors"))
         opts_apply(&ps->opts);
-    }
     y += 30;
 
-    /* ── Save / Load ── */
     DrawLine(x + PAD, y, x + w - PAD, y, THEME_DIVIDER);
     y += 10;
     char opts_path[512];
@@ -1037,7 +1263,6 @@ static void draw_options_panel(AppState *app, PanelState *ps) {
 /* ── File-browser popup overlays ────────────────────────────────────────────── */
 
 static void draw_gif_popup(PanelState *ps) {
-    /* Covers the GIF panel area */
     int x = GRID_X;
     int y = GIF_PANEL_Y;
     int w = RPANEL_X - PAD - GRID_X;
@@ -1047,20 +1272,17 @@ static void draw_gif_popup(PanelState *ps) {
     DrawRectangleLinesEx((Rectangle){(float)x,(float)y,(float)w,(float)h},
                          1, THEME_BTN_BORDER_HOV);
 
-    /* Title + close */
     DrawText("Select GIF file", x + PAD, y + 6, THEME_FONT_LABEL, THEME_TEXT_SECTION);
     if (GuiButton((Rectangle){(float)(x+w-30),(float)(y+4),24,22}, "X"))
         ps->gif_fb_visible = 0;
 
     int fb_y = y + 28;
-    int fb_h = h - 28;
-    if (fb_draw(&ps->gif_fb, x, fb_y, w, fb_h, false,
+    if (fb_draw(&ps->gif_fb, x, fb_y, w, h - 28, false,
                 ps->gif_path, sizeof(ps->gif_path)))
-        ps->gif_fb_visible = 0;  /* auto-close on selection */
+        ps->gif_fb_visible = 0;
 }
 
 static void draw_cfg_popup(AppState *app, PanelState *ps) {
-    /* Float over the config panel area */
     int x = RPANEL_X;
     int y = GIF_PANEL_Y;
     int w = RPANEL_W;
@@ -1075,8 +1297,7 @@ static void draw_cfg_popup(AppState *app, PanelState *ps) {
         ps->cfg_fb_visible = 0;
 
     int fb_y = y + 28;
-    int fb_h = h - 28;
-    if (fb_draw(&ps->cfg_fb, x, fb_y, w, fb_h, false,
+    if (fb_draw(&ps->cfg_fb, x, fb_y, w, h - 28, false,
                 ps->config_path_buf, sizeof(ps->config_path_buf))) {
         snprintf(app->config_path, sizeof(app->config_path),
                  "%s", ps->config_path_buf);
@@ -1094,7 +1315,6 @@ static void draw_header(AppState *app, PanelState *ps) {
              14 + MeasureText("launc-macro", THEME_FONT_TITLE) + 5, 12,
              THEME_FONT_TITLE, THEME_TEXT_ACCENT);
 
-    /* Status indicator */
     Color dot = app->running          ? THEME_DOT_RUNNING
               : app->device_connected ? THEME_DOT_IDLE
                                       : THEME_DOT_OFFLINE;
@@ -1104,11 +1324,9 @@ static void draw_header(AppState *app, PanelState *ps) {
     DrawCircle(WIN_W - 188, HDR_H / 2, 6, dot);
     DrawText(dot_lbl, WIN_W - 177, HDR_H / 2 - 7, THEME_FONT_MID, dot);
 
-    /* Options toggle — right edge of header */
     if (GuiButton((Rectangle){ WIN_W - PAD - 80, 10, 80, 30 }, "Options"))
         ps->options_open = !ps->options_open;
 
-    /* Connect / Disconnect */
     if (!app->device_connected) {
         if (GuiButton((Rectangle){ 200, 10, 110, 30 }, "Connect"))
             app_connect(app);
@@ -1117,7 +1335,6 @@ static void draw_header(AppState *app, PanelState *ps) {
             app_disconnect(app);
     }
 
-    /* Start / Stop */
     if (app->device_connected) {
         if (!app->running) {
             if (GuiButton((Rectangle){ 320, 10, 90, 30 }, "Start"))
@@ -1135,19 +1352,14 @@ int main(void) {
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(WIN_W, WIN_H, "launc-macro GUI");
 
-    /* Set window icon from icon.png next to the executable */
     {
         char icon_path[512];
         snprintf(icon_path, sizeof(icon_path), "%sicon.png", GetApplicationDirectory());
         Image app_icon = LoadImage(icon_path);
-        if (app_icon.data) {
-            SetWindowIcon(app_icon);
-            UnloadImage(app_icon);
-        }
+        if (app_icon.data) { SetWindowIcon(app_icon); UnloadImage(app_icon); }
     }
 
     SetTargetFPS(60);
-
     apply_theme();
 
     AppState  *app = app_create();
@@ -1155,10 +1367,14 @@ int main(void) {
 
     int        sel = -1;
     PanelState ps  = { 0 };
-    ps.last_sel      = -2;
-    ps.open_dropdown = DROPDOWN_NONE;
-    snprintf(ps.fps_buf,        sizeof(ps.fps_buf),        "0");
-    snprintf(ps.config_path_buf,sizeof(ps.config_path_buf),"%s", app->config_path);
+    ps.last_sel        = -2;
+    ps.last_edit_layer = -1;
+    ps.last_gif_layer  = -1;
+    ps.open_dropdown   = DROPDOWN_NONE;
+    snprintf(ps.config_path_buf, sizeof(ps.config_path_buf), "%s", app->config_path);
+
+    /* Initialise GIF / EQ panel state from layer 0 */
+    sync_ps_from_layer(app, &ps);
 
     char home[512];
     get_home_dir(home, sizeof(home));
@@ -1167,7 +1383,6 @@ int main(void) {
     fb_init(&ps.font_fb, home, ".ttf");
 
     opts_defaults(&ps.opts);
-    /* Try loading saved options */
     char opts_path[512];
     gui_opts_path(app->config_path, opts_path, sizeof(opts_path));
     opts_load(&ps.opts, opts_path);
@@ -1179,32 +1394,31 @@ int main(void) {
         ClearBackground(THEME_BG);
 
         bool any_open   = (ps.open_dropdown != DROPDOWN_NONE);
-        /* "globally locked" = dropdown open OR a popup is open */
         bool any_locked = any_open
                        || ps.gif_fb_visible || ps.cfg_fb_visible
-                       || ps.options_open;
+                       || ps.options_open   || ps.eq_open;
 
         if (any_locked) GuiLock();
 
         draw_header(app, &ps);
+        draw_layer_bar(app, any_locked);
         draw_launchpad(app, &sel, any_locked);
         draw_right_panel(app, sel, &ps);
         draw_gif_panel(app, &ps);
         draw_cfg_panel(app, &ps);
 
-        /* Status bar */
         DrawRectangle(0, WIN_H - SBAR_H, WIN_W, SBAR_H, THEME_SBAR_BG);
         DrawText(app->status_msg, 10, WIN_H - SBAR_H + 6,
                  THEME_FONT_LABEL, THEME_TEXT_SBAR);
 
-        /* Unlock so overlays and dropdowns receive input */
         if (any_locked) GuiUnlock();
 
-        /* ── Draw all dropdowns (closed ones first, then open one on top) ── */
-        int frame_start_dropdown = any_open ? ps.open_dropdown : DROPDOWN_NONE;
+        /* ── Draw all dropdowns ── */
+        int  frame_start_dropdown = any_open ? ps.open_dropdown : DROPDOWN_NONE;
         bool dis_btn = (sel < 0);
         bool dis_gif = app->running;
 
+        /* Closed dropdowns first */
         if (ps.open_dropdown != DROPDOWN_COLOR) {
             if (dis_btn || any_open) GuiSetState(STATE_DISABLED);
             if (GuiDropdownBox(ps.color_rect, COLOUR_DROPDOWN,
@@ -1233,19 +1447,31 @@ int main(void) {
                 ps.open_dropdown = DROPDOWN_GIF_MODE;
             GuiSetState(STATE_NORMAL);
         }
+        /* EQ color dropdown — only shown when EQ panel is open */
+        if (ps.eq_open && ps.open_dropdown != DROPDOWN_EQ_COLOR) {
+            if (any_open) GuiSetState(STATE_DISABLED);
+            if (GuiDropdownBox(ps.eq_color_rect, EQ_COLOR_DROPDOWN,
+                               &ps.eq_color_active, 0) && !any_open)
+                ps.open_dropdown = DROPDOWN_EQ_COLOR;
+            GuiSetState(STATE_NORMAL);
+        }
+
+        /* Open dropdown (drawn on top) */
         switch (frame_start_dropdown) {
         case DROPDOWN_COLOR:
             if (GuiDropdownBox(ps.color_rect, COLOUR_DROPDOWN, &ps.color_active, 1)) {
                 ps.open_dropdown = DROPDOWN_NONE;
-                if (sel >= 0) app_set_button_color(app, sel, PALETTE[ps.color_active].vel);
+                if (sel >= 0)
+                    app_set_button_color(app, sel, PALETTE[ps.color_active].vel);
             }
             break;
         case DROPDOWN_COLOR_PRESSED:
             if (GuiDropdownBox(ps.color_pressed_rect, COLOUR_DROPDOWN,
                                &ps.color_pressed_active, 1)) {
                 ps.open_dropdown = DROPDOWN_NONE;
-                if (sel >= 0) app_set_button_color_pressed(app, sel,
-                                    PALETTE[ps.color_pressed_active].vel);
+                if (sel >= 0)
+                    app_set_button_color_pressed(app, sel,
+                        PALETTE[ps.color_pressed_active].vel);
             }
             break;
         case DROPDOWN_ACTION_TYPE:
@@ -1257,33 +1483,39 @@ int main(void) {
             if (GuiDropdownBox(ps.gif_mode_rect, "Full;Red;Green;Yellow",
                                &ps.gif_mode_active, 1)) {
                 ps.open_dropdown = DROPDOWN_NONE;
-                app->gif_mode = ps.gif_mode_active;
+                app->config.layers[app->active_layer].gif_mode = ps.gif_mode_active;
+            }
+            break;
+        case DROPDOWN_EQ_COLOR:
+            if (GuiDropdownBox(ps.eq_color_rect, EQ_COLOR_DROPDOWN,
+                               &ps.eq_color_active, 1)) {
+                ps.open_dropdown = DROPDOWN_NONE;
+                app->config.layers[app->active_layer].eq_color = ps.eq_color_active;
             }
             break;
         default: break;
         }
 
-        /* ── Popup overlays (drawn on top of everything) ── */
+        /* ── Popup overlays ── */
         if (ps.gif_fb_visible)  draw_gif_popup(&ps);
         if (ps.cfg_fb_visible)  draw_cfg_popup(app, &ps);
+        if (ps.eq_open)         draw_eq_panel(app, &ps);
         if (ps.options_open)    draw_options_panel(app, &ps);
 
-        /* ── Button copy / paste / cut / delete ────────────────────────────
-           Active only when a button is selected, no dropdown/popup is open,
-           and no text box is being edited (so Ctrl+C in a text field still
-           works normally via textbox_clipboard()). */
+        /* ── Button copy / paste / cut / delete ── */
         if (sel >= 0 && !any_locked && !any_textbox_active(&ps)) {
             bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
             const char *id  = button_index_to_id(sel);
-            const ButtonCfg *btn = config_find_button(&app->config, id);
+            const ButtonCfg *btn = config_find_button_in_layer(
+                &app->config, app->active_layer, id);
 
-            uint8_t    cur_col    = btn ? btn->color             : app->config.default_color;
-            uint8_t    cur_colp   = btn ? btn->color_pressed     : app->config.default_color_pressed;
-            const char *cur_act   = btn ? btn->action            : "";
-            int        cur_gif    = btn ? btn->gif_overlay       : 0;
-            int        cur_rep    = btn ? btn->repeat_on_hold    : 0;
-            int        cur_hd     = btn ? btn->hold_delay_ms     : 500;
-            int        cur_ri     = btn ? btn->repeat_interval_ms: 100;
+            uint8_t    cur_col  = btn ? btn->color         : app->config.default_color;
+            uint8_t    cur_colp = btn ? btn->color_pressed : app->config.default_color_pressed;
+            const char *cur_act = btn ? btn->action        : "";
+            int cur_gif = btn ? btn->gif_overlay : 0;
+            int cur_rep = btn ? btn->repeat_on_hold    : 0;
+            int cur_hd  = btn ? btn->hold_delay_ms     : 500;
+            int cur_ri  = btn ? btn->repeat_interval_ms: 100;
 
             if (ctrl && IsKeyPressed(KEY_C)) {
                 ps.btn_clip_color              = cur_col;
@@ -1296,7 +1528,7 @@ int main(void) {
                 ps.btn_clip_repeat_interval_ms = cur_ri;
                 ps.btn_clip_valid              = true;
                 snprintf(app->status_msg, sizeof(app->status_msg),
-                         "Copied config from %s.", id);
+                         "Copied %s (layer %d).", id, app->active_layer + 1);
 
             } else if (ctrl && IsKeyPressed(KEY_X)) {
                 ps.btn_clip_color              = cur_col;
@@ -1315,7 +1547,7 @@ int main(void) {
                 app_set_button_repeat(app, sel, 0, 500, 100);
                 ps.last_sel = -2;
                 snprintf(app->status_msg, sizeof(app->status_msg),
-                         "Cut config from %s.", id);
+                         "Cut %s (layer %d).", id, app->active_layer + 1);
 
             } else if (ctrl && IsKeyPressed(KEY_V) && ps.btn_clip_valid) {
                 app_set_button_color(app, sel, ps.btn_clip_color);
@@ -1327,7 +1559,7 @@ int main(void) {
                                       ps.btn_clip_repeat_interval_ms);
                 ps.last_sel = -2;
                 snprintf(app->status_msg, sizeof(app->status_msg),
-                         "Pasted config to %s.", id);
+                         "Pasted to %s (layer %d).", id, app->active_layer + 1);
 
             } else if (IsKeyPressed(KEY_DELETE)) {
                 app_set_button_color(app, sel, app->config.default_color);
@@ -1337,7 +1569,7 @@ int main(void) {
                 app_set_button_repeat(app, sel, 0, 500, 100);
                 ps.last_sel = -2;
                 snprintf(app->status_msg, sizeof(app->status_msg),
-                         "Cleared config for %s.", id);
+                         "Cleared %s (layer %d).", id, app->active_layer + 1);
             }
         }
 

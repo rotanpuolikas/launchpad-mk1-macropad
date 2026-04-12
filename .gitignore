@@ -29,6 +29,9 @@ Makefile
 *.swo
 *~
 
+launchpad.conf
+GUI_INTERNALD.md
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -45,6 +45,12 @@ find_package(Threads REQUIRED)
 if(NOT WIN32)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(ALSA REQUIRED alsa)
+    pkg_check_modules(LIBPULSE libpulse-simple)
+    if(LIBPULSE_FOUND)
+        message(STATUS "PulseAudio found — equalizer enabled")
+    else()
+        message(STATUS "PulseAudio (libpulse-simple) not found — equalizer disabled")
+    endif()
 endif()
 
 # ── sources ────────────────────────────────────────────────────────────────────
@@ -54,6 +60,7 @@ set(GUI_SOURCES
     ${SRC}/config.c
     ${SRC}/gif.c
     ${SRC}/colours.c
+    ${SRC}/audio.c
     ${SRC}/gui/app.c
     ${SRC}/gui/theme.c
     ${SRC}/gui/main_gui.c
@@ -86,6 +93,14 @@ target_include_directories(launc-macro-gui PRIVATE
 )
 
 target_compile_definitions(launc-macro-gui PRIVATE HAVE_GIF=1 INI_MAX_LINE=512)
+
+# Equalizer via PulseAudio (Linux only)
+if(LIBPULSE_FOUND AND NOT WIN32)
+    target_compile_definitions(launc-macro-gui PRIVATE HAVE_PULSEAUDIO=1)
+    target_link_libraries(launc-macro-gui PRIVATE ${LIBPULSE_LIBRARIES})
+    target_include_directories(launc-macro-gui PRIVATE ${LIBPULSE_INCLUDE_DIRS})
+    target_compile_options(launc-macro-gui PRIVATE ${LIBPULSE_CFLAGS_OTHER})
+endif()
 
 # Prevent Win32 GDI/user headers from declaring Rectangle/CloseWindow/
 # ShowCursor/DrawText etc., which conflict with raylib's API of the same name.
